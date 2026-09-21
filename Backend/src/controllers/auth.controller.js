@@ -138,11 +138,7 @@ class AuthController {
     const user = await User.findById(req.user._id)
       .select(
         "_id fullName email phone role department avatar isAccountActivated isActive lastLoginAt createdBy createdAt updatedAt",
-      )
-      .populate(
-        "createdBy",
-        "fullName email role",
-      );
+      ).populate("createdBy", "fullName email role",);
 
     if (!user) {
       return res.status(404).json({
