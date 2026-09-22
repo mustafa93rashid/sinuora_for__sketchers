@@ -170,10 +170,7 @@ class AuthController {
       });
     }
 
-    const isCurrentPasswordCorrect = await passwordService.compare(
-      currentPassword,
-      user.password,
-    );
+    const isCurrentPasswordCorrect = await passwordService.compare(currentPassword, user.password);
 
     if (!isCurrentPasswordCorrect) {
       return res.status(400).json({
@@ -182,21 +179,21 @@ class AuthController {
       });
     }
 
-    const verificationCode =
-      verificationCodeService.generateVerificationCode();
+    const verificationCode = verificationCodeService.generateVerificationCode();
 
-    user.passwordChangeCode =
-      verificationCodeService.hashVerificationCode(
-        verificationCode,
-      );
+    user.passwordChangeCode = verificationCodeService.hashVerificationCode(verificationCode);
 
-    user.passwordChangeCodeExpires = new Date(
-      Date.now() + 10 * 60 * 1000,
-    );
+    user.passwordChangeCodeExpires = new Date( Date.now() + 10 * 60 * 1000);
 
-    await user.save({
-      validateBeforeSave: false,
-    });
+    if (!user.passwordChangeCodeExpires || user.passwordChangeCodeExpires <= new Date()) 
+      {
+        return res.status(400).json({
+        success: false,
+        message: "Verification code has expired",
+        });
+      }
+
+    await user.save({validateBeforeSave: false});
 
     try {
       await emailService.sendPasswordChangeVerificationEmail({
@@ -208,9 +205,7 @@ class AuthController {
       user.passwordChangeCode = undefined;
       user.passwordChangeCodeExpires = undefined;
 
-      await user.save({
-        validateBeforeSave: false,
-      });
+      await user.save({validateBeforeSave: false});
 
       throw error;
     }
