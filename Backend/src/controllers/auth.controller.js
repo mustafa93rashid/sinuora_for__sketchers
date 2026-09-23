@@ -246,9 +246,7 @@ class AuthController {
       user.passwordChangeCode = undefined;
       user.passwordChangeCodeExpires = undefined;
 
-      await user.save({
-        validateBeforeSave: false,
-      });
+      await user.save({ validateBeforeSave: false });
 
       return res.status(400).json({
         success: false,
