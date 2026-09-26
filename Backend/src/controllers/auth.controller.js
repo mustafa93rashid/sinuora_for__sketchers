@@ -185,14 +185,6 @@ class AuthController {
 
     user.passwordChangeCodeExpires = new Date( Date.now() + 10 * 60 * 1000);
 
-    if (!user.passwordChangeCodeExpires || user.passwordChangeCodeExpires <= new Date()) 
-      {
-        return res.status(400).json({
-        success: false,
-        message: "Verification code has expired",
-        });
-      }
-
     await user.save({validateBeforeSave: false});
 
     try {
@@ -239,9 +231,7 @@ class AuthController {
       });
     }
 
-    if (
-      !user.passwordChangeCodeExpires ||
-      user.passwordChangeCodeExpires < Date.now()
+    if (!user.passwordChangeCodeExpires || user.passwordChangeCodeExpires < Date.now()
     ) {
       user.passwordChangeCode = undefined;
       user.passwordChangeCodeExpires = undefined;
