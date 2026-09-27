@@ -9,7 +9,7 @@ const {
   variantInventoryValidation,
   getInventoryTransactionsValidation,
   getVariantTransactionsValidation,
-} = require("../validations/inventory.validation");
+} = require("../validation/inventory.validation");
 
 const auth = require("../middlewares/auth.middleware");
 

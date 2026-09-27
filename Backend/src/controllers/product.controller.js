@@ -1,646 +1,140 @@
-const Product = require(
-  "../models/product.model",
-);
-
-const ProductVariant = require(
-  "../models/productVariant.model",
-);
-
-// ==================== Product Controller ====================
-
+const Product = require("../models/product.model");
+const ProductVariant = require("../models/productVariant.model");
+const { buildPagination, buildPaginationResponse } = require("../helper/pagination.helper");
+const { buildSearchFilter, escapeRegex } = require("../helper/search.helper");
 class ProductController {
   // ==================== Create Product ====================
 
   createProduct = async (req, res) => {
-    const {
-      name,
-      modelCode,
-      description,
-      brand,
-      category,
-      images,
-      costPrice,
-      defaultSalePrice,
-    } = req.body;
+    const { name, modelCode, description, brand, category, images, costPrice, defaultSalePrice } = req.body;
 
-    const createdBy =
-      req.user?._id || req.user?.id;
+    const normalizedModelCode = modelCode.toUpperCase();
+    const existingProduct = await Product.findOne({ modelCode: normalizedModelCode });
 
-    // ==================== Normalize Model Code ====================
-
-    const normalizedModelCode =
-      modelCode.trim().toUpperCase();
-
-    // ==================== Check Existing Product ====================
-
-    const existingProduct =
-      await Product.findOne({
-        modelCode:
-          normalizedModelCode,
-      });
-
-    if (existingProduct) {
+    if (existingProduct)
       return res.status(409).json({
         success: false,
-
-        message:
-          "Product model code already exists",
-      });
-    }
-
-    // ==================== Create Product ====================
-
-    const product =
-      await Product.create({
-        name: name.trim(),
-
-        modelCode:
-          normalizedModelCode,
-
-        description:
-          description?.trim() || "",
-
-        brand:
-          brand?.trim() ||
-          "Skechers",
-
-        category:
-          category?.trim() ||
-          "Shoes",
-
-        images: images || [],
-
-        costPrice:
-          costPrice ?? 0,
-
-        defaultSalePrice:
-          defaultSalePrice ?? 0,
-
-        createdBy,
+        message: `Product model code ${normalizedModelCode} already exists`
       });
 
-    // ==================== Populate User ====================
+    const product = await Product.create
+      ({ name, modelCode: normalizedModelCode, description, brand, category, images, costPrice, defaultSalePrice, createdBy: req.user._id });
 
-    await product.populate({
-      path: "createdBy",
-
-      select:
-        "name email role",
-    });
-
-    // ==================== Response ====================
+    await product.populate({ path: "createdBy", select: "name role" });
 
     return res.status(201).json({
       success: true,
-
-      message:
-        "Product created successfully",
-
-      data: {
-        product,
-      },
+      message: `Product ${product.name} created successfully`,
+      data: { product }
     });
   };
 
   // ==================== Get Products ====================
 
-  getProducts = async (req, res) => {
-    const {
-      page = 1,
-      limit = 20,
-      search,
-      brand,
-      category,
-      isActive,
-    } = req.query;
+getProducts = async (req, res) => {
+  const { page = 1, limit = 20, search, brand, category, isActive } = req.query;
+  const filter = { ...buildSearchFilter(search, ["name", "modelCode"]) };
 
-    const filter = {};
+  if (brand) filter.brand = { $regex: `^${escapeRegex(brand)}$`, $options: "i" };
+  if (category) filter.category = { $regex: `^${escapeRegex(category)}$`, $options: "i" };
+  if (isActive !== undefined) filter.isActive = isActive;
 
-    // ==================== Search ====================
+  const { skip } = buildPagination(page, limit);
 
-    if (search) {
-      const searchRegex =
-        this.escapeRegex(
-          search.trim(),
-        );
+  const [products, totalProducts] = await Promise.all([
+    Product.find(filter)
+    .populate("createdBy", "name email role")
+    .populate("updatedBy", "name email role")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit),
+    Product.countDocuments(filter),
+  ]);
 
-      filter.$or = [
-        {
-          name: {
-            $regex: searchRegex,
-            $options: "i",
-          },
-        },
-
-        {
-          modelCode: {
-            $regex: searchRegex,
-            $options: "i",
-          },
-        },
-      ];
-    }
-
-    // ==================== Brand Filter ====================
-
-    if (brand) {
-      filter.brand = {
-        $regex: `^${this.escapeRegex(
-          brand.trim(),
-        )}$`,
-
-        $options: "i",
-      };
-    }
-
-    // ==================== Category Filter ====================
-
-    if (category) {
-      filter.category = {
-        $regex: `^${this.escapeRegex(
-          category.trim(),
-        )}$`,
-
-        $options: "i",
-      };
-    }
-
-    // ==================== Status Filter ====================
-
-    if (isActive !== undefined) {
-      filter.isActive =
-        isActive === true ||
-        isActive === "true";
-    }
-
-    // ==================== Pagination ====================
-
-    const pageNumber = Math.max(
-      Number(page) || 1,
-      1,
-    );
-
-    const limitNumber = Math.min(
-      Math.max(
-        Number(limit) || 20,
-        1,
-      ),
-      100,
-    );
-
-    const skip =
-      (pageNumber - 1) *
-      limitNumber;
-
-    // ==================== Get Products ====================
-
-    const [
-      products,
-      totalProducts,
-    ] = await Promise.all([
-      Product.find(filter)
-        .populate({
-          path: "createdBy",
-
-          select:
-            "name email role",
-        })
-        .populate({
-          path: "updatedBy",
-
-          select:
-            "name email role",
-        })
-        .sort({
-          createdAt: -1,
-        })
-        .skip(skip)
-        .limit(limitNumber),
-
-      Product.countDocuments(
-        filter,
-      ),
-    ]);
-
-    // ==================== Pagination Information ====================
-
-    const totalPages = Math.ceil(
-      totalProducts /
-        limitNumber,
-    );
-
-    // ==================== Response ====================
-
-    return res.status(200).json({
-      success: true,
-
-      results: products.length,
-
-      pagination: {
-        page: pageNumber,
-
-        limit: limitNumber,
-
-        totalProducts,
-
-        totalPages,
-
-        hasNextPage:
-          pageNumber <
-          totalPages,
-
-        hasPreviousPage:
-          pageNumber > 1,
-      },
-
-      data: {
-        products,
-      },
-    });
-  };
+  return res.status(200).json({
+    success: true,
+    message: "Products retrieved successfully",
+    results: products.length,
+    pagination: buildPaginationResponse(page, limit, totalProducts),
+    data: { products },
+  });
+};
 
   // ==================== Get Product By Id ====================
 
-  getProductById = async (
-    req,
-    res,
-  ) => {
-    const { id } = req.params;
-
-    // ==================== Get Product ====================
-
-    const product =
-      await Product.findById(id)
-        .populate({
-          path: "createdBy",
-
-          select:
-            "name email role",
-        })
-        .populate({
-          path: "updatedBy",
-
-          select:
-            "name email role",
-        });
-
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-
-        message:
-          "Product not found",
-      });
-    }
-
-    // ==================== Get Product Variants ====================
-
-    const variants =
-      await ProductVariant.find({
-        product: product._id,
-      }).sort({
-        color: 1,
-        size: 1,
-      });
-
-    // ==================== Response ====================
-
-    return res.status(200).json({
-      success: true,
-
-      data: {
-        product,
-        variants,
-      },
-    });
+  getProductById = async (req, res) => {
+    const product = await Product.findById(req.params.id).populate("createdBy", "name email role").populate("updatedBy", "name email role");
+    if (!product) return res.status(404).json({ success: false, message: "Product not found" });
+    const variants = await ProductVariant.find({ product: product._id }).sort({ color: 1, size: 1 });
+    return res.status(200).json({ success: true, data: { product, variants } });
   };
 
   // ==================== Update Product ====================
 
-  updateProduct = async (
-    req,
-    res,
-  ) => {
+  updateProduct = async (req, res) => {
     const { id } = req.params;
-
-    const {
-      name,
-      modelCode,
-      description,
-      brand,
-      category,
-      images,
-      costPrice,
-      defaultSalePrice,
-      isActive,
-    } = req.body;
-
-    const updatedBy =
-      req.user?._id || req.user?.id;
-
-    // ==================== Get Product ====================
-
-    const product =
-      await Product.findById(id);
-
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-
-        message:
-          "Product not found",
-      });
-    }
-
-    // ==================== Check Model Code ====================
+    const { name, modelCode, description, brand, category, images, costPrice, defaultSalePrice, isActive } = req.body;
+    const product = await Product.findById(id);
+    if (!product) return res.status(404).json({ success: false, message: "Product not found" });
 
     if (modelCode !== undefined) {
-      const normalizedModelCode =
-        modelCode
-          .trim()
-          .toUpperCase();
-
-      const existingProduct =
-        await Product.findOne({
-          _id: {
-            $ne: product._id,
-          },
-
-          modelCode:
-            normalizedModelCode,
-        });
-
-      if (existingProduct) {
-        return res.status(409).json({
-          success: false,
-
-          message:
-            "Product model code already exists",
-        });
-      }
-
-      product.modelCode =
-        normalizedModelCode;
+      const normalizedModelCode = modelCode.toUpperCase();
+      const existingProduct = await Product.findOne({ _id: { $ne: id }, modelCode: normalizedModelCode });
+      if (existingProduct) return res.status(409).json({ success: false, message: `Product model code ${normalizedModelCode} already exists` });
+      product.modelCode = normalizedModelCode;
     }
 
-    // ==================== Update Name ====================
-
-    if (name !== undefined) {
-      product.name =
-        name.trim();
-    }
-
-    // ==================== Update Description ====================
-
-    if (description !== undefined) {
-      product.description =
-        description.trim();
-    }
-
-    // ==================== Update Brand ====================
-
-    if (brand !== undefined) {
-      product.brand =
-        brand.trim();
-    }
-
-    // ==================== Update Category ====================
-
-    if (category !== undefined) {
-      product.category =
-        category.trim();
-    }
-
-    // ==================== Update Images ====================
-
-    if (images !== undefined) {
-      product.images = images;
-    }
-
-    // ==================== Update Cost Price ====================
-
-    if (costPrice !== undefined) {
-      product.costPrice =
-        costPrice;
-    }
-
-    // ==================== Update Default Sale Price ====================
-
-    if (
-      defaultSalePrice !==
-      undefined
-    ) {
-      product.defaultSalePrice =
-        defaultSalePrice;
-    }
-
-    // ==================== Update Status ====================
-
-    if (isActive !== undefined) {
-      product.isActive =
-        isActive;
-    }
-
-    // ==================== Update User ====================
-
-    product.updatedBy =
-      updatedBy;
-
-    // ==================== Save Product ====================
+    if (name !== undefined) product.name = name;
+    if (description !== undefined) product.description = description;
+    if (brand !== undefined) product.brand = brand;
+    if (category !== undefined) product.category = category;
+    if (images !== undefined) product.images = images;
+    if (costPrice !== undefined) product.costPrice = costPrice;
+    if (defaultSalePrice !== undefined) product.defaultSalePrice = defaultSalePrice;
+    if (isActive !== undefined) product.isActive = isActive;
+    product.updatedBy = req.user._id;
 
     await product.save();
-
-    // ==================== Populate Users ====================
-
-    await product.populate([
-      {
-        path: "createdBy",
-
-        select:
-          "name email role",
-      },
-
-      {
-        path: "updatedBy",
-
-        select:
-          "name email role",
-      },
-    ]);
-
-    // ==================== Response ====================
-
-    return res.status(200).json({
-      success: true,
-
-      message:
-        "Product updated successfully",
-
-      data: {
-        product,
-      },
-    });
+    await product.populate([{ path: "createdBy", select: "name email role" }, { path: "updatedBy", select: "name email role" }]);
+    return res.status(200).json({ success: true, message: "Product updated successfully", data: { product } });
   };
 
   // ==================== Archive Product ====================
 
-  archiveProduct = async (
-    req,
-    res,
-  ) => {
-    const { id } = req.params;
+  archiveProduct = async (req, res) => {
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ success: false, message: "Product not found" });
+    if (!product.isActive) return res.status(400).json({ success: false, message: "Product is already archived" });
 
-    const updatedBy =
-      req.user?._id || req.user?.id;
-
-    // ==================== Get Product ====================
-
-    const product =
-      await Product.findById(id);
-
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-
-        message:
-          "Product not found",
-      });
-    }
-
-    // ==================== Check Product Status ====================
-
-    if (!product.isActive) {
-      return res.status(400).json({
-        success: false,
-
-        message:
-          "Product is already archived",
-      });
-    }
-
-    // ==================== Check Reserved Variants ====================
-
-    const reservedVariant =
-      await ProductVariant.findOne({
-        product: product._id,
-
-        reservedQuantity: {
-          $gt: 0,
-        },
-      });
-
-    if (reservedVariant) {
-      return res.status(409).json({
-        success: false,
-
-        message:
-          "Cannot archive product because one or more variants have reserved stock",
-      });
-    }
-
-    // ==================== Archive Product ====================
+    const reservedVariant = await ProductVariant.exists({ product: product._id, reservedQuantity: { $gt: 0 } });
+    if (reservedVariant) return res.status(409).json({ success: false, message: "Cannot archive product because one or more variants have reserved stock" });
 
     product.isActive = false;
-
-    product.updatedBy =
-      updatedBy;
-
+    product.updatedBy = req.user._id;
     await product.save();
 
-    // ==================== Archive Product Variants ====================
-
-    await ProductVariant.updateMany(
-      {
-        product: product._id,
-      },
-
-      {
-        $set: {
-          isActive: false,
-        },
-      },
-    );
-
-    // ==================== Response ====================
-
-    return res.status(200).json({
-      success: true,
-
-      message:
-        "Product archived successfully",
-    });
+    return res.status(200).json({ success: true, message: "Product archived successfully" });
   };
 
   // ==================== Restore Product ====================
 
-  restoreProduct = async (
-    req,
-    res,
-  ) => {
-    const { id } = req.params;
-
-    const updatedBy =
-      req.user?._id || req.user?.id;
-
-    // ==================== Get Product ====================
-
-    const product =
-      await Product.findById(id);
-
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-
-        message:
-          "Product not found",
-      });
-    }
-
-    // ==================== Check Product Status ====================
-
-    if (product.isActive) {
-      return res.status(400).json({
-        success: false,
-
-        message:
-          "Product is already active",
-      });
-    }
-
-    // ==================== Restore Product ====================
+  restoreProduct = async (req, res) => {
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ success: false, message: "Product not found" });
+    if (product.isActive) return res.status(400).json({ success: false, message: "Product is already active" });
 
     product.isActive = true;
-
-    product.updatedBy =
-      updatedBy;
-
+    product.updatedBy = req.user._id;
     await product.save();
 
-    // ==================== Response ====================
-
-    return res.status(200).json({
-      success: true,
-
-      message:
-        "Product restored successfully",
-
-      data: {
-        product,
-      },
-    });
+    return res.status(200).json({ success: true, message: "Product restored successfully", data: { product } });
   };
 
   // ==================== Escape Regex ====================
 
-  escapeRegex = (value) => {
-    return value.replace(
-      /[.*+?^${}()|[\]\\]/g,
-      "\\$&",
-    );
-  };
+  escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ==================== Export Controller ====================
 
-module.exports =
-  new ProductController();
+module.exports = new ProductController();
