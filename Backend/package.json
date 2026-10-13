@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node ./src/app.js",
     "watch": "nodemon ./src/app.js",
-    "seed:superadmin": "node src/superAdmin.seed.js"
+    "seed:superadmin": "node src/superAdmin.seed.js",
+    "test:orders": "node --test tests/orders.unit.test.js tests/orders.integration.test.js"
   },
   "keywords": [],
   "author": "",

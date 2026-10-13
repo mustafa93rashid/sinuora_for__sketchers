@@ -5,9 +5,9 @@ const {
   validationResult,
 } = require("express-validator");
 
-// ==================== Allowed Shoe Sizes ====================
+// ==================== Sizes ====================
 
-const ALLOWED_SHOE_SIZES = [
+const PRODUCT_SIZES = [
   36,
   36.5,
   37,
@@ -50,24 +50,18 @@ const handleValidationErrors = (
 
 const createProductVariantValidation = [
   body("product")
-    .exists({
-      checkFalsy: true,
-    })
+    .exists({ checkFalsy: true })
     .withMessage("Product is required")
     .bail()
     .isMongoId()
     .withMessage("Invalid product id"),
 
   body("color")
-    .exists({
-      checkFalsy: true,
-    })
+    .exists({ checkFalsy: true })
     .withMessage("Color is required")
     .bail()
     .isString()
-    .withMessage(
-      "Color must be a string",
-    )
+    .withMessage("Color must be a string")
     .bail()
     .trim()
     .isLength({
@@ -75,27 +69,21 @@ const createProductVariantValidation = [
       max: 50,
     })
     .withMessage(
-      "Color must be between 1 and 50 characters",
+      "Color cannot exceed 50 characters",
     ),
 
   body("size")
-    .exists({
-      checkNull: true,
-    })
+    .exists()
     .withMessage("Size is required")
     .bail()
     .isFloat()
-    .withMessage(
-      "Size must be a valid number",
-    )
+    .withMessage("Size must be a number")
     .bail()
     .toFloat()
     .custom((value) => {
-      if (
-        !ALLOWED_SHOE_SIZES.includes(value)
-      ) {
+      if (!PRODUCT_SIZES.includes(value)) {
         throw new Error(
-          "Invalid shoe size",
+          "Invalid product size",
         );
       }
 
@@ -105,38 +93,17 @@ const createProductVariantValidation = [
   body("sku")
     .optional()
     .isString()
-    .withMessage(
-      "SKU must be a string",
-    )
+    .withMessage("SKU must be a string")
     .bail()
     .trim()
-    .notEmpty()
-    .withMessage(
-      "SKU cannot be empty",
-    )
-    .bail()
     .isLength({
+      min: 1,
       max: 100,
     })
     .withMessage(
-      "SKU cannot exceed 100 characters",
-    ),
-
-  // ==================== Prevent Direct Stock Manipulation ====================
-
-  body("stockQuantity")
-    .not()
-    .exists()
-    .withMessage(
-      "Stock quantity cannot be set directly",
-    ),
-
-  body("reservedQuantity")
-    .not()
-    .exists()
-    .withMessage(
-      "Reserved quantity cannot be set directly",
-    ),
+      "SKU must be between 1 and 100 characters",
+    )
+    .toUpperCase(),
 
   handleValidationErrors,
 ];
@@ -146,29 +113,16 @@ const createProductVariantValidation = [
 const updateProductVariantValidation = [
   param("id")
     .isMongoId()
-    .withMessage(
-      "Invalid product variant id",
-    ),
-
-  body("product")
-    .not()
-    .exists()
-    .withMessage(
-      "Product cannot be changed",
-    ),
+    .withMessage("Invalid product variant id"),
 
   body("color")
     .optional()
     .isString()
-    .withMessage(
-      "Color must be a string",
-    )
+    .withMessage("Color must be a string")
     .bail()
     .trim()
     .notEmpty()
-    .withMessage(
-      "Color cannot be empty",
-    )
+    .withMessage("Color cannot be empty")
     .bail()
     .isLength({
       max: 50,
@@ -180,17 +134,13 @@ const updateProductVariantValidation = [
   body("size")
     .optional()
     .isFloat()
-    .withMessage(
-      "Size must be a valid number",
-    )
+    .withMessage("Size must be a number")
     .bail()
     .toFloat()
     .custom((value) => {
-      if (
-        !ALLOWED_SHOE_SIZES.includes(value)
-      ) {
+      if (!PRODUCT_SIZES.includes(value)) {
         throw new Error(
-          "Invalid shoe size",
+          "Invalid product size",
         );
       }
 
@@ -200,46 +150,17 @@ const updateProductVariantValidation = [
   body("sku")
     .optional()
     .isString()
-    .withMessage(
-      "SKU must be a string",
-    )
+    .withMessage("SKU must be a string")
     .bail()
     .trim()
-    .notEmpty()
-    .withMessage(
-      "SKU cannot be empty",
-    )
-    .bail()
     .isLength({
+      min: 1,
       max: 100,
     })
     .withMessage(
-      "SKU cannot exceed 100 characters",
-    ),
-
-  body("isActive")
-    .optional()
-    .isBoolean()
-    .withMessage(
-      "isActive must be true or false",
+      "SKU must be between 1 and 100 characters",
     )
-    .toBoolean(),
-
-  // ==================== Prevent Direct Stock Manipulation ====================
-
-  body("stockQuantity")
-    .not()
-    .exists()
-    .withMessage(
-      "Stock quantity cannot be changed directly",
-    ),
-
-  body("reservedQuantity")
-    .not()
-    .exists()
-    .withMessage(
-      "Reserved quantity cannot be changed directly",
-    ),
+    .toUpperCase(),
 
   handleValidationErrors,
 ];
@@ -249,9 +170,7 @@ const updateProductVariantValidation = [
 const productVariantIdValidation = [
   param("id")
     .isMongoId()
-    .withMessage(
-      "Invalid product variant id",
-    ),
+    .withMessage("Invalid product variant id"),
 
   handleValidationErrors,
 ];
@@ -261,9 +180,7 @@ const productVariantIdValidation = [
 const productIdValidation = [
   param("productId")
     .isMongoId()
-    .withMessage(
-      "Invalid product id",
-    ),
+    .withMessage("Invalid product id"),
 
   handleValidationErrors,
 ];
@@ -295,32 +212,24 @@ const getProductVariantsValidation = [
   query("product")
     .optional()
     .isMongoId()
-    .withMessage(
-      "Invalid product id",
-    ),
+    .withMessage("Invalid product id"),
 
   query("color")
     .optional()
     .isString()
-    .withMessage(
-      "Color must be a string",
-    )
+    .withMessage("Color must be a string")
     .trim(),
 
   query("size")
     .optional()
     .isFloat()
-    .withMessage(
-      "Size must be a valid number",
-    )
+    .withMessage("Size must be a number")
     .bail()
     .toFloat()
     .custom((value) => {
-      if (
-        !ALLOWED_SHOE_SIZES.includes(value)
-      ) {
+      if (!PRODUCT_SIZES.includes(value)) {
         throw new Error(
-          "Invalid shoe size",
+          "Invalid product size",
         );
       }
 
@@ -341,7 +250,6 @@ const getProductVariantsValidation = [
 // ==================== Export ====================
 
 module.exports = {
-  ALLOWED_SHOE_SIZES,
   createProductVariantValidation,
   updateProductVariantValidation,
   productVariantIdValidation,

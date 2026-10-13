@@ -89,6 +89,14 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+app.use("/api/v1/auth", require("./routers/auth.routes"));
+app.use("/api/v1/users", require("./routers/user.routes"));
+app.use("/api/v1/products", require("./routers/product.route"));
+app.use("/api/v1/product-variants", require("./routers/productVariant.routes"));
+app.use("/api/v1/inventory", require("./routers/inventory.routes"));
+app.use("/api/v1/orders", require("./routers/order.routes"));
+
+
 //=========================================================================
 // Error Handling Middleware
 //=========================================================================
@@ -110,6 +118,8 @@ mongoose
   .then(() => {
     console.log("Connected to MongoDB Successfully");
 
+console.log("Database Name:", mongoose.connection.name);
+console.log("MongoDB Host:", mongoose.connection.host);
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server is running on port ${PORT}`);
 });

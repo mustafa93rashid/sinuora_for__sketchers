@@ -9,11 +9,11 @@ const {
 
 const INVENTORY_TRANSACTION_TYPES = [
   "IN",
+  "RESERVE",
+  "RELEASE_RESERVE",
   "SALE",
   "RETURN",
   "ADJUSTMENT",
-  "RESERVE",
-  "RELEASE_RESERVE",
 ];
 
 // ==================== Handle Validation Errors ====================
@@ -28,15 +28,11 @@ const handleValidationErrors = (
   if (!errors.isEmpty()) {
     return res.status(400).json({
       success: false,
-
       message: "Validation failed",
-
-      errors: errors.array().map(
-        (error) => ({
-          field: error.path,
-          message: error.msg,
-        }),
-      ),
+      errors: errors.array().map((error) => ({
+        field: error.path,
+        message: error.msg,
+      })),
     });
   }
 
@@ -53,12 +49,8 @@ const addStockValidation = [
     ),
 
   body("quantity")
-    .exists({
-      checkNull: true,
-    })
-    .withMessage(
-      "Quantity is required",
-    )
+    .exists()
+    .withMessage("Quantity is required")
     .bail()
     .isInt({
       min: 1,
@@ -69,7 +61,11 @@ const addStockValidation = [
     .toInt(),
 
   body("reason")
-    .optional()
+    .exists({
+      checkFalsy: true,
+    })
+    .withMessage("Reason is required")
+    .bail()
     .isString()
     .withMessage(
       "Reason must be a string",
@@ -77,10 +73,11 @@ const addStockValidation = [
     .bail()
     .trim()
     .isLength({
+      min: 2,
       max: 500,
     })
     .withMessage(
-      "Reason cannot exceed 500 characters",
+      "Reason must be between 2 and 500 characters",
     ),
 
   body("note")
@@ -111,9 +108,7 @@ const adjustStockValidation = [
     ),
 
   body("newQuantity")
-    .exists({
-      checkNull: true,
-    })
+    .exists()
     .withMessage(
       "New quantity is required",
     )
@@ -122,7 +117,7 @@ const adjustStockValidation = [
       min: 0,
     })
     .withMessage(
-      "New quantity must be a non-negative integer",
+      "New quantity must be 0 or greater",
     )
     .toInt(),
 
@@ -130,9 +125,7 @@ const adjustStockValidation = [
     .exists({
       checkFalsy: true,
     })
-    .withMessage(
-      "Reason is required",
-    )
+    .withMessage("Reason is required")
     .bail()
     .isString()
     .withMessage(
@@ -161,6 +154,18 @@ const adjustStockValidation = [
     })
     .withMessage(
       "Note cannot exceed 1000 characters",
+    ),
+
+  handleValidationErrors,
+];
+
+// ==================== Variant Inventory Validation ====================
+
+const variantInventoryValidation = [
+  param("variantId")
+    .isMongoId()
+    .withMessage(
+      "Invalid product variant id",
     ),
 
   handleValidationErrors,
@@ -203,20 +208,13 @@ const getInventoryValidation = [
     .withMessage(
       "Color must be a string",
     )
-    .bail()
-    .trim()
-    .isLength({
-      max: 50,
-    })
-    .withMessage(
-      "Color cannot exceed 50 characters",
-    ),
+    .trim(),
 
   query("size")
     .optional()
     .isFloat()
     .withMessage(
-      "Size must be a valid number",
+      "Size must be a number",
     )
     .toFloat(),
 
@@ -234,21 +232,9 @@ const getInventoryValidation = [
       min: 0,
     })
     .withMessage(
-      "Low stock must be a non-negative integer",
+      "Low stock must be 0 or greater",
     )
     .toInt(),
-
-  handleValidationErrors,
-];
-
-// ==================== Variant Inventory Validation ====================
-
-const variantInventoryValidation = [
-  param("variantId")
-    .isMongoId()
-    .withMessage(
-      "Invalid product variant id",
-    ),
 
   handleValidationErrors,
 ];
@@ -286,13 +272,6 @@ const getInventoryTransactionsValidation = [
 
   query("type")
     .optional()
-    .isString()
-    .withMessage(
-      "Transaction type must be a string",
-    )
-    .bail()
-    .trim()
-    .toUpperCase()
     .isIn(
       INVENTORY_TRANSACTION_TYPES,
     )
@@ -313,49 +292,6 @@ const getInventoryTransactionsValidation = [
     .withMessage(
       "Invalid user id",
     ),
-
-  query("startDate")
-    .optional()
-    .isISO8601()
-    .withMessage(
-      "Invalid start date",
-    ),
-
-  query("endDate")
-    .optional()
-    .isISO8601()
-    .withMessage(
-      "Invalid end date",
-    ),
-
-  // ==================== Validate Date Range ====================
-
-  query("endDate").custom(
-    (endDate, { req }) => {
-      if (
-        !endDate ||
-        !req.query.startDate
-      ) {
-        return true;
-      }
-
-      const start = new Date(
-        req.query.startDate,
-      );
-
-      const end = new Date(
-        endDate,
-      );
-
-      if (end < start) {
-        throw new Error(
-          "End date cannot be before start date",
-        );
-      }
-
-      return true;
-    },
-  ),
 
   handleValidationErrors,
 ];
@@ -396,17 +332,10 @@ const getVariantTransactionsValidation = [
 // ==================== Export ====================
 
 module.exports = {
-  INVENTORY_TRANSACTION_TYPES,
-
   addStockValidation,
-
   adjustStockValidation,
-
-  getInventoryValidation,
-
   variantInventoryValidation,
-
+  getInventoryValidation,
   getInventoryTransactionsValidation,
-
   getVariantTransactionsValidation,
 };

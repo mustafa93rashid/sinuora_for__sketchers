@@ -130,30 +130,6 @@ const createProductValidation = [
     )
     .toFloat(),
 
-  body("images")
-    .optional()
-    .isArray()
-    .withMessage("Images must be an array"),
-
-  body("images.*.url")
-    .optional()
-    .isURL({
-      protocols: ["http", "https"],
-      require_protocol: true,
-    })
-    .withMessage(
-      "Image URL must be a valid URL",
-    ),
-
-  body("images.*.publicId")
-    .optional({
-      nullable: true,
-    })
-    .isString()
-    .withMessage(
-      "Image publicId must be a string",
-    ),
-
   handleValidationErrors,
 ];
 
@@ -263,30 +239,6 @@ const updateProductValidation = [
     )
     .toFloat(),
 
-  body("images")
-    .optional()
-    .isArray()
-    .withMessage("Images must be an array"),
-
-  body("images.*.url")
-    .optional()
-    .isURL({
-      protocols: ["http", "https"],
-      require_protocol: true,
-    })
-    .withMessage(
-      "Image URL must be a valid URL",
-    ),
-
-  body("images.*.publicId")
-    .optional({
-      nullable: true,
-    })
-    .isString()
-    .withMessage(
-      "Image publicId must be a string",
-    ),
-
   body("isActive")
     .optional()
     .isBoolean()
@@ -304,6 +256,20 @@ const productIdValidation = [
   param("id")
     .isMongoId()
     .withMessage("Invalid product id"),
+
+  handleValidationErrors,
+];
+
+// ==================== Product Image Validation ====================
+
+const productImageValidation = [
+  param("id")
+    .isMongoId()
+    .withMessage("Invalid product id"),
+
+  param("imageId")
+    .isMongoId()
+    .withMessage("Invalid product image id"),
 
   handleValidationErrors,
 ];
@@ -371,5 +337,6 @@ module.exports = {
   createProductValidation,
   updateProductValidation,
   productIdValidation,
+  productImageValidation,
   getProductsValidation,
 };

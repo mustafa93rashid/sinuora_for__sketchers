@@ -602,11 +602,10 @@ class UserController {
     const { role } = req.body;
 
     const allowedRoles = [
-      "superadmin",
-      "manager",
-      "equipmentManager",
-      "hrManager",
-      "contentManager",
+        "superadmin",
+        "manager",
+        "saler",
+        "follow-up",
     ];
 
     if (req.params.id === req.user.id) {
