@@ -47,6 +47,24 @@ test("Development accepts the existing local dashboard URL without using it in p
   }
 });
 
+test("Allowed origins normalize scheme-less values (e.g. Vercel's bare VERCEL_URL) and drop unusable ones instead of throwing", () => {
+  const keys = ["DASHBOARD_URL", "WEBSITE_URL", "FRONTEND_URL", "DASHBOARD_URL_LOCAL", "WEBSITE_URL_LOCAL", "CLIENT_URL", "VERCEL_URL"];
+  const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  try {
+    for (const key of keys) delete process.env[key];
+    process.env.FRONTEND_URL = "http://localhost:5173/";
+    process.env.VERCEL_URL = "my-app.vercel.app";
+    process.env.CLIENT_URL = "not a url";
+    const { getAllowedOrigins } = require("../src/config/origins");
+    assert.doesNotThrow(getAllowedOrigins);
+    assert.deepEqual(getAllowedOrigins(), ["http://localhost:5173", "https://my-app.vercel.app"]);
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
 test("JWTs have unique identities, enforce token purpose and require a session version", () => {
   process.env.JWT_SECRET_KEY = "unit-test-only-access-secret-123456789";
   process.env.REFRESH_JWT_SECRET_KEY = "unit-test-only-refresh-secret-123456789";
