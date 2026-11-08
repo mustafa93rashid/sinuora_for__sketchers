@@ -61,6 +61,50 @@ class DashboardHelper {
     });
   };
 
+  // ==================== Financial Visibility ====================
+  // Audit finding H-1: follow-up has no ownership restriction in
+  // orderHelper.scope(), so without this check it saw confirmed
+  // revenue/returned value across the whole company instead of just
+  // the operational counts its role needs.
+
+  canViewDashboardFinancials = (user) =>
+    ["superadmin", "manager", "saler"].includes(user?.role);
+
+  redactOverviewFinancials = (user, overview) => {
+    if (this.canViewDashboardFinancials(user)) return overview;
+
+    const {
+      confirmedRevenue,
+      totalOrderValue,
+      returnedValue,
+      ...operationalStatistics
+    } = overview.statistics;
+
+    const { confirmedRevenue: _today, returnedValue: __today, ...operationalToday } =
+      overview.today;
+
+    return {
+      ...overview,
+      statistics: operationalStatistics,
+      today: operationalToday,
+    };
+  };
+
+  redactSalesChartFinancials = (user, charts) => {
+    if (this.canViewDashboardFinancials(user)) return charts;
+
+    const stripMoney = ({ revenue, returnedValue, ...rest }) => rest;
+
+    return {
+      ...charts,
+      summary: stripMoney(charts.summary),
+      dailySales: charts.dailySales.map(stripMoney),
+      topModels: charts.topModels.map(stripMoney),
+      topColors: charts.topColors.map(stripMoney),
+      topSizes: charts.topSizes.map(stripMoney),
+    };
+  };
+
   // ==================== Build Order Match ====================
 
   buildOrderMatch = (user, range = {}) => {
@@ -204,7 +248,7 @@ class DashboardHelper {
         : Promise.resolve(null),
     ]);
 
-    return {
+    return this.redactOverviewFinancials(user, {
       statistics,
       today: {
         orders: today.totalOrders,
@@ -218,7 +262,7 @@ class DashboardHelper {
         basis: "order_created_at",
         timezone: "Asia/Baghdad",
       },
-    };
+    });
   };
 
 
@@ -446,7 +490,7 @@ class DashboardHelper {
       }
     );
 
-    return {
+    return this.redactSalesChartFinancials(user, {
       period: {
         from: period.from,
         to: period.to,
@@ -459,7 +503,7 @@ class DashboardHelper {
       topModels: modelRows,
       topColors: colorRows,
       topSizes: sizeRows,
-    };
+    });
   };
 
   // ==================== Top Sales Aggregation ====================

@@ -390,5 +390,35 @@ test("Orders on an isolated MongoDB replica set", { skip: !process.env.MONGOD_BI
     assert.equal((await request(other, `/${id}/history`)).status, 404);
     assert.equal((await request(followUp, `/${id}/history`)).status, 200);
   });
+  await t.test("Dashboard financial fields are hidden from follow-up but visible to saler/manager/superadmin", async () => {
+    const dashboardHelper = require("../src/helpers/dashboard.helper");
+    const o = await dispatched(2, manager);
+    await helper.deliverOrder({ user: followUp, id: o.id });
+
+    for (const user of [admin, manager, seller]) {
+      const data = await dashboardHelper.getOverview(user, {});
+      assert.ok(Number.isInteger(data.statistics.confirmedRevenue));
+      assert.ok(Number.isInteger(data.today.confirmedRevenue));
+    }
+
+    const followUpOverview = await dashboardHelper.getOverview(followUp, {});
+    assert.ok(Number.isInteger(followUpOverview.statistics.totalOrders));
+    for (const field of ["confirmedRevenue", "totalOrderValue", "returnedValue"]) {
+      assert.equal(followUpOverview.statistics[field], undefined);
+    }
+    assert.equal(followUpOverview.today.confirmedRevenue, undefined);
+    assert.equal(followUpOverview.today.returnedValue, undefined);
+
+    const managerCharts = await dashboardHelper.getSalesCharts(manager, { days: 7 });
+    assert.ok(managerCharts.summary.revenue > 0);
+
+    const followUpCharts = await dashboardHelper.getSalesCharts(followUp, { days: 7 });
+    assert.ok(Number.isInteger(followUpCharts.summary.soldQuantity));
+    assert.equal(followUpCharts.summary.revenue, undefined);
+    assert.equal(followUpCharts.summary.returnedValue, undefined);
+    assert.ok(followUpCharts.dailySales.every((day) => day.revenue === undefined && Number.isInteger(day.soldQuantity)));
+    assert.ok(followUpCharts.topModels.every((row) => row.revenue === undefined));
+  });
+
   await require("./review.regressions")(t, { server, admin, manager, seller, followUp, create, body, variant, dispatched, returning });
 });
