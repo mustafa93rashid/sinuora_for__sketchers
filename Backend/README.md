@@ -72,11 +72,19 @@
 
 ```powershell
 npm test
-$env:MONGOD_BINARY = 'C:\Program Files\MongoDB\Server\8.2\bin\mongod.exe'
 npm run test:integration
 ```
 
 `npm test` يشغّل اختبارات الوحدة. أمر التكامل هو فحص الإصدار الكامل ولا يسمح بتخطي قاعدة الاختبار. يشغّل قاعدة محلية مؤقتة على منفذ عشوائي؛ لا يستخدم `MONGODB_URL` أو `.env` ولا يرسل بريداً أو صوراً إلى خدمات حقيقية. يبقى مجلد قاعدة الاختبار المؤقت وسجله للتشخيص، وتُوقف عملية mongod بعد الاختبار.
+
+يحاول `test:integration` تحديد مسار `mongod` تلقائياً (تثبيت Windows المعتاد تحت `C:\Program Files\MongoDB\Server\<version>\bin\mongod.exe`، أو المسارات المعتادة على Linux/macOS). إن فشل التحديد التلقائي، أو لتحديد مسار مخصص، يمكن ضبطه يدوياً:
+
+```powershell
+$env:MONGOD_BINARY = 'C:\Program Files\MongoDB\Server\8.2\bin\mongod.exe'
+npm run test:integration
+```
+
+ملاحظة: لا توجد خطوط CI حالياً تُشغّل `test:integration` تلقائياً على كل Pull Request (راجع قسم الجاهزية للنشر)؛ يجب تشغيله يدوياً قبل أي دمج يغيّر منطق الطلبات أو المخزون أو المصادقة.
 
 ## ملاحظات النشر
 
