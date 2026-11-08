@@ -16,9 +16,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "aragon": "^0.0.1",
     "argon2": "^0.45.1",
-    "bcryptjs": "^3.0.3",
     "cloudinary": "^2.11.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -32,8 +30,9 @@
     "morgan": "^1.12.1",
     "multer": "^2.4.0",
     "nodemailer": "^10.0.10",
-    "nodemon": "^3.1.14",
-    "socket.io": "^4.8.3",
-    "xss": "^1.0.15"
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
