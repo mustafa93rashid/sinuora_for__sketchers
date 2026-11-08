@@ -40,6 +40,28 @@ test("New role permissions retain seller ownership scope", async () => {
   for (const method of ["startPreparing", "markPrepared", "dispatchOrder"]) await assert.rejects(helper[method]({ user: { role: "saler" }, id }), { statusCode: 403 });
 });
 
+test("Pricing policy flags below-cost and out-of-tolerance item prices, allows compliant and unset-catalog prices", () => {
+  assert.deepEqual(helper.evaluateItemPricing({ unitPrice: 100, catalogPrice: 100, catalogCost: 70 }), []);
+  assert.deepEqual(helper.evaluateItemPricing({ unitPrice: 115, catalogPrice: 100, catalogCost: 70 }), []);
+  assert.deepEqual(helper.evaluateItemPricing({ unitPrice: 85, catalogPrice: 100, catalogCost: 70 }), []);
+  assert.deepEqual(helper.evaluateItemPricing({ unitPrice: 60, catalogPrice: 100, catalogCost: 70 }), ["below_cost", "price_deviation"]);
+  assert.deepEqual(helper.evaluateItemPricing({ unitPrice: 200, catalogPrice: 100, catalogCost: 70 }), ["price_deviation"]);
+  assert.deepEqual(helper.evaluateItemPricing({ unitPrice: 80, catalogPrice: 0, catalogCost: 0 }), []);
+});
+
+test("Discount policy caps discount at 20% of the pre-discount order amount, ignores a zero base amount", () => {
+  assert.deepEqual(helper.evaluateDiscountPolicy({ discount: 20, baseAmount: 100 }), []);
+  assert.deepEqual(helper.evaluateDiscountPolicy({ discount: 21, baseAmount: 100 }), ["discount_exceeds_cap"]);
+  assert.deepEqual(helper.evaluateDiscountPolicy({ discount: 0, baseAmount: 0 }), []);
+});
+
+test("Pricing policy enforcement blocks non-admin roles and records an exception for admin roles instead", () => {
+  assert.throws(() => helper.enforcePricingPolicy({ user: { role: "saler" }, reasons: ["below_cost"] }), { statusCode: 403 });
+  assert.deepEqual(helper.enforcePricingPolicy({ user: { role: "saler" }, reasons: [] }), { exception: false, reasons: [] });
+  assert.deepEqual(helper.enforcePricingPolicy({ user: { role: "manager" }, reasons: ["below_cost"] }), { exception: true, reasons: ["below_cost"] });
+  assert.deepEqual(helper.enforcePricingPolicy({ user: { role: "superadmin" }, reasons: [] }), { exception: false, reasons: [] });
+});
+
 test("Order model rejects quantities and amounts that cannot be represented safely", async () => {
   const order = new Order({ orderNumber: "TEST", customer: body().customer, createdBy: id, subtotal: 100, totalAmount: 100,
     items: [{ variant: id, product: id, quantity: 1, unitPrice: 100, totalPrice: 100, dispatchedQuantity: 1, returnedQuantity: 1, deliveredQuantity: 1, productSnapshot: { name: "Shoe", color: "Black", size: 38 } }] });

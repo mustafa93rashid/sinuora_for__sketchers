@@ -94,7 +94,14 @@ class OrderHelper {
       for (const item of value.items) {
         delete item.unitCost;
         delete item.totalCost;
+        delete item.priceException;
+        delete item.priceExceptionReasons;
       }
+    }
+
+    if (!this.isAdmin(user)) {
+      delete value.priceException;
+      delete value.priceExceptionReasons;
     }
 
     return value;
@@ -131,6 +138,61 @@ class OrderHelper {
 
   sumAmount = (current, value, label = "Amount") =>
     this.validateAmount(current + value, label);
+
+  // ==================== Pricing Policy ====================
+  // Balanced governance policy (audit finding C-1): a saler-role price
+  // or discount outside these bounds is rejected outright; the same
+  // breach by an admin role (manager/superadmin) is allowed but marked
+  // as a priceException on the order for later review, instead of
+  // silently accepted.
+
+  PRICE_TOLERANCE_RATIO = 0.15;
+  DISCOUNT_CAP_RATIO = 0.2;
+
+  evaluateItemPricing = ({ unitPrice, catalogPrice, catalogCost }) => {
+    const reasons = [];
+
+    if (Number.isSafeInteger(catalogCost) && catalogCost > 0 && unitPrice < catalogCost) {
+      reasons.push("below_cost");
+    }
+
+    if (Number.isSafeInteger(catalogPrice) && catalogPrice > 0) {
+      const deviation = Math.abs(unitPrice - catalogPrice);
+
+      if (deviation > catalogPrice * this.PRICE_TOLERANCE_RATIO) {
+        reasons.push("price_deviation");
+      }
+    }
+
+    return reasons;
+  };
+
+  evaluateDiscountPolicy = ({ discount, baseAmount }) => {
+    if (!Number.isSafeInteger(baseAmount) || baseAmount <= 0) {
+      return [];
+    }
+
+    if (discount > baseAmount * this.DISCOUNT_CAP_RATIO) {
+      return ["discount_exceeds_cap"];
+    }
+
+    return [];
+  };
+
+  enforcePricingPolicy = ({ user, reasons }) => {
+    if (!reasons.length) {
+      return { exception: false, reasons: [] };
+    }
+
+    if (!this.isAdmin(user)) {
+      this.fail(
+        `Price requires manager approval (${reasons.join(", ")})`,
+        403
+      );
+    }
+
+    return { exception: true, reasons };
+  };
 
   // ==================== Product Cost ====================
 
@@ -261,6 +323,7 @@ class OrderHelper {
     item,
     previous = null,
     session,
+    user,
   }) => {
     const variant = await ProductVariant.findOne({
       _id: item.variant,
@@ -332,6 +395,17 @@ class OrderHelper {
           sku: variant.sku,
         };
 
+    // ==================== Pricing Policy ====================
+
+    const pricingReasons = this.evaluateItemPricing({
+      unitPrice: item.unitPrice,
+      catalogPrice: product.defaultSalePrice,
+      catalogCost: product.costPrice,
+    });
+
+    const { exception: priceException, reasons: priceExceptionReasons } =
+      this.enforcePricingPolicy({ user, reasons: pricingReasons });
+
     return {
       _id: previous?._id ?? new mongoose.Types.ObjectId(),
       product: product._id,
@@ -341,13 +415,15 @@ class OrderHelper {
       totalPrice,
       unitCost,
       totalCost,
+      priceException,
+      priceExceptionReasons,
       productSnapshot,
     };
   };
 
   // ==================== Calculate Order Totals ====================
 
-  calculateTotals = (order) => {
+  calculateTotals = (order, user) => {
     order.subtotal = order.items.reduce(
       (sum, item) =>
         this.sumAmount(sum, item.totalPrice, "subtotal"),
@@ -368,6 +444,32 @@ class OrderHelper {
     }
 
     order.totalAmount = beforeDiscount - order.discount;
+
+    // ==================== Pricing Policy (Order-Level Discount) ====================
+
+    const discountReasons = this.evaluateDiscountPolicy({
+      discount: order.discount,
+      baseAmount: beforeDiscount,
+    });
+
+    const { exception: discountException, reasons: discountExceptionReasons } =
+      this.enforcePricingPolicy({ user, reasons: discountReasons });
+
+    const itemReasons = order.items.flatMap((item) =>
+      (item.priceExceptionReasons ?? []).map(
+        (reason) => `item:${item.variant}:${reason}`
+      )
+    );
+
+    order.priceException =
+      discountException || order.items.some((item) => item.priceException);
+
+    order.priceExceptionReasons = [
+      ...(discountException
+        ? discountExceptionReasons.map((reason) => `order:${reason}`)
+        : []),
+      ...itemReasons,
+    ];
   };
 
   // ==================== Calculate Follow-up Amounts ====================
@@ -452,6 +554,7 @@ class OrderHelper {
             await this.prepareOrderItem({
               item,
               session,
+              user,
             })
           );
         }
@@ -472,7 +575,7 @@ class OrderHelper {
           idempotencyHash: hash,
         });
 
-        this.calculateTotals(order);
+        this.calculateTotals(order, user);
 
         await order.save({ session });
 
@@ -578,6 +681,7 @@ class OrderHelper {
             item,
             previous,
             session,
+            user,
           });
 
           const difference =
@@ -649,7 +753,7 @@ class OrderHelper {
         order.discount = body.discount;
       }
 
-      this.calculateTotals(order);
+      this.calculateTotals(order, user);
 
       order.updatedBy = user._id;
 

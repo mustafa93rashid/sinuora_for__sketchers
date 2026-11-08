@@ -221,6 +221,18 @@ const orderItemSchema = new mongoose.Schema(
       },
     },
 
+    // ==================== Pricing Policy ====================
+
+    priceException: {
+      type: Boolean,
+      default: false,
+    },
+
+    priceExceptionReasons: {
+      type: [String],
+      default: [],
+    },
+
     // ==================== Product Snapshot ====================
 
     productSnapshot: {
@@ -307,6 +319,19 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
+    },
+
+    // ==================== Pricing Policy ====================
+
+    priceException: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    priceExceptionReasons: {
+      type: [String],
+      default: [],
     },
 
     // ==================== Order Users ====================

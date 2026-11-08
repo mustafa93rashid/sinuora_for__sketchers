@@ -263,6 +263,34 @@ test("Orders on an isolated MongoDB replica set", { skip: !process.env.MONGOD_BI
     assert.equal((await Variant.findById(b._id)).reservedQuantity, 0);
   });
 
+  await t.test("Pricing policy blocks saler out-of-bounds prices/discounts and flags the same as an exception for admins", async () => {
+    const pricedProduct = await Product.create({ name: "Priced shoe", modelCode: "PRICED", costPrice: 70, defaultSalePrice: 100, createdBy: admin._id });
+    const v = async (stock) => Variant.create({ product: pricedProduct._id, color: `priced-${++sequence}`, size: 38, stockQuantity: stock });
+    const pricedBody = (variant, unitPrice, discount) => ({ customer: { name: "Test", instagramUsername: "test", address: "Baghdad" }, items: [{ variant: String(variant._id), quantity: 1, unitPrice }], discount });
+
+    // Below cost (70): saler is blocked outright.
+    await assert.rejects(create(pricedBody(await v(3), 50), "pricing-below-cost-saler", seller), { statusCode: 403 });
+
+    // Within +/-15% tolerance of defaultSalePrice (100): saler succeeds, no exception recorded.
+    const compliant = await create(pricedBody(await v(3), 110), "pricing-compliant-saler", seller);
+    assert.equal(compliant.order.priceException, undefined); // stripped from non-admin view
+    assert.equal((await Order.findById(compliant.order._id)).priceException, false);
+
+    // Below cost for an admin: allowed, but recorded as a priceException instead of silently accepted.
+    const overridden = await create(pricedBody(await v(3), 50), "pricing-below-cost-admin", manager);
+    assert.equal(overridden.order.priceException, true);
+    assert.ok(overridden.order.items[0].priceExceptionReasons.includes("below_cost"));
+
+    // Discount above the 20% cap: saler is blocked outright.
+    const forDiscount = await v(3);
+    await assert.rejects(create(pricedBody(forDiscount, 100, 30), "pricing-discount-saler", seller), { statusCode: 403 });
+
+    // Same discount for an admin: allowed, recorded as an order-level exception.
+    const discounted = await create(pricedBody(await v(3), 100, 30), "pricing-discount-admin", manager);
+    assert.equal(discounted.order.priceException, true);
+    assert.ok(discounted.order.priceExceptionReasons.includes("order:discount_exceeds_cap"));
+  });
+
   // ==================== Authenticated HTTP Tests ====================
 
   await t.test("Concurrent update and cancellation keep stock consistent", async () => {
