@@ -33,10 +33,10 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.3",
+    "prettier": "^3.6.2",
     "tailwindcss": "^4.1.13",
     "typescript": "~5.9.2",
     "vite": "^7.1.7",
-    "vitest": "^3.2.4",
-    "prettier": "^3.6.2"
+    "vitest": "^5.1.0"
   }
 }
