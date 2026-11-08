@@ -1,0 +1,84 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const express = require("express");
+const { query } = require("express-validator");
+const validate = require("../src/middlewares/validate");
+
+test("Validation exposes converted query data without changing Express 5 request getters", async () => {
+  const req = Object.create(express.request);
+  req.app = express();
+  req.url = "/?lowStock=0&isActive=false&limit=2";
+  await query("lowStock").isInt({ min: 0 }).toInt().run(req);
+  await query("isActive").isBoolean().toBoolean().run(req);
+  await query("limit").isInt({ min: 1, max: 100 }).toInt().run(req);
+  let next = false;
+  validate(req, {}, () => { next = true; });
+  assert.equal(next, true);
+  assert.deepEqual(req.validatedQuery, { lowStock: 0, isActive: false, limit: 2 });
+  assert.equal(req.query.lowStock, "0");
+});
+
+test("Input middleware preserves secret values exactly", () => {
+  const body = { password: " Abcd123!<b>X</b> ", currentPassword: "<x>", token: " untouched ", customer: { name: "A&B" } };
+  const req = { body: structuredClone(body) };
+  require("../src/middlewares/xss")(req, {}, () => {});
+  assert.deepEqual(req.body, body);
+});
+
+test("Development accepts the existing local dashboard URL without using it in production", () => {
+  const keys = ["NODE_ENV", "DASHBOARD_URL", "FRONTEND_URL", "DASHBOARD_URL_LOCAL"];
+  const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  try {
+    delete process.env.DASHBOARD_URL;
+    delete process.env.FRONTEND_URL;
+    process.env.DASHBOARD_URL_LOCAL = "http://localhost:5173/";
+    process.env.NODE_ENV = "development";
+    const { getDashboardUrl, getFrontendUrl } = require("../src/config/frontend");
+    assert.equal(getDashboardUrl(), "http://localhost:5173");
+    assert.equal(getFrontendUrl(), "http://localhost:5173");
+    process.env.NODE_ENV = "production";
+    assert.equal(getDashboardUrl(), "");
+    process.env.DASHBOARD_URL = "https://dashboard.example.test/";
+    assert.equal(getDashboardUrl(), "https://dashboard.example.test");
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
+test("JWTs have unique identities, enforce token purpose and require a session version", () => {
+  process.env.JWT_SECRET_KEY = "unit-test-only-access-secret-123456789";
+  process.env.REFRESH_JWT_SECRET_KEY = "unit-test-only-refresh-secret-123456789";
+  const service = require("../src/utils/jwtService");
+  const payload = { id: "abcdef123456abcdef123456", ver: 3, role: "saler" };
+  const first = service.generateRefreshToken(payload);
+  const second = service.generateRefreshToken(payload);
+  assert.notEqual(first, second);
+  assert.equal(service.verifyRefreshToken(first).ver, 3);
+  assert.throws(() => service.verifyAccessToken(first));
+  const legacy = require("jsonwebtoken").sign({ id: payload.id }, process.env.JWT_SECRET_KEY);
+  assert.throws(() => service.verifyAccessToken(legacy));
+});
+
+test("Configuration errors fail before database startup and do not expose secrets", () => {
+  const names = ["MONGODB_URL", "JWT_SECRET_KEY", "REFRESH_JWT_SECRET_KEY", "DASHBOARD_URL", "FRONTEND_URL", "EMAIL_HOST", "EMAIL_PORT", "EMAIL_USER", "EMAIL_PASSWORD", "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET", "JWT_ACCESS_EXPIRES_IN", "JWT_REFRESH_EXPIRES_IN", "TRUST_PROXY_HOPS", "EMAIL_SECURE"];
+  const original = Object.fromEntries(names.map(name => [name, process.env[name]]));
+  const { validateConfiguration } = require("../src/config/startup");
+  try {
+    for (const name of names) delete process.env[name];
+    assert.throws(validateConfiguration, /Missing configuration/);
+    Object.assign(process.env, {
+      MONGODB_URL: "mongodb://127.0.0.1/test", JWT_SECRET_KEY: "a".repeat(40), REFRESH_JWT_SECRET_KEY: "b".repeat(40),
+      FRONTEND_URL: "http://localhost:5173", EMAIL_HOST: "localhost", EMAIL_PORT: "1025", EMAIL_USER: "test", EMAIL_PASSWORD: "test",
+      CLOUDINARY_CLOUD_NAME: "test", CLOUDINARY_API_KEY: "test", CLOUDINARY_API_SECRET: "test",
+    });
+    assert.doesNotThrow(validateConfiguration);
+    process.env.REFRESH_JWT_SECRET_KEY = process.env.JWT_SECRET_KEY;
+    assert.throws(validateConfiguration, /distinct/);
+  } finally {
+    for (const [name, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
+});

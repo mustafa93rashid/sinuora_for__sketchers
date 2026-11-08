@@ -1,563 +1,140 @@
-const crypto = require("crypto");
-
 const User = require("../models/user.model");
-
-const jwtService = require("../utils/jwtService");
-const passwordService = require("../utils/passwordService");
-const cookiesService = require("../utils/cookiesService");
-const verificationCodeService = require("../utils/verificationCodeService");
-
-const emailService = require("../services/email.service");
-
-// ==================== Hash Refresh Token ====================
-
-const hashRefreshToken = (refreshToken) => {
-  return crypto
-    .createHash("sha256")
-    .update(refreshToken)
-    .digest("hex");
-};
-
-// ==================== Compare Refresh Tokens ====================
-
-const compareRefreshTokens = (providedTokenHash, storedTokenHash) => {
-  if (!providedTokenHash || !storedTokenHash) {
-    return false;
-  }
-
-  const providedBuffer = Buffer.from(providedTokenHash, "hex");
-
-  const storedBuffer = Buffer.from(storedTokenHash, "hex");
-
-  if (providedBuffer.length !== storedBuffer.length) {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(providedBuffer, storedBuffer);
-};
-
-// ==================== Auth Controller ====================
+const jwt = require("../utils/jwtService");
+const passwords = require("../utils/passwordService");
+const cookies = require("../utils/cookiesService");
+const codes = require("../utils/verificationCodeService");
+const email = require("../services/email.service");
+const { getFrontendUrl } = require("../config/frontend");
+const { hashToken, versionFilter, tokensFor, disconnectUser, sensitiveUnset } = require("../helpers/session.helper");
+const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
+const active = { isActive: true, isAccountActivated: true, deletedAt: null };
+const publicFields = "_id fullName email phone role avatar isAccountActivated isActive lastLoginAt createdBy createdAt updatedAt";
 
 class AuthController {
-
-  // ==================== Login ====================
-
   login = async (req, res) => {
     const { email, password } = req.body;
-
-    // Find user by email and include password and refreshToken fields
-    let user = await User.findOne({
-      email: email,
-    }).select("+password +refreshToken");
-
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid email or password",
-      });
-    }
-
-    // Check if the provided password matches the stored hashed password
-    const isPasswordCorrect = await passwordService.compare(password, user.password);
-
-    if (!isPasswordCorrect) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid email or password",
-      });
-    }
-
-    if (!user.isAccountActivated) {
-      return res.status(403).json({
-        success: false,
-        message: "Account has not been activated",
-      });
-    }
-
-    if (!user.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: "Account is inactive",
-      });
-    }
-
-    const payload = { id: user._id.toString(), role: user.role};
-    const accessToken = jwtService.generateAccessToken(payload);
-    const refreshToken = jwtService.generateRefreshToken(payload);
-
-    user.refreshToken = hashRefreshToken(refreshToken);
-
-    user.lastLoginAt = new Date();
-
-    await user.save({validateBeforeSave: false});
-
-    const userResponse = user.toObject();
-
-    delete userResponse.password;
-    delete userResponse.refreshToken;
-    delete userResponse.passwordResetToken;
-    delete userResponse.passwordResetExpires;
-    delete userResponse.passwordChangeCode;
-    delete userResponse.passwordChangeCodeExpires;
-    delete userResponse.pendingPassword;
-    delete userResponse.pendingEmail;
-    delete userResponse.emailChangeCode;
-    delete userResponse.emailChangeCodeExpires;
-    delete userResponse.activationToken;
-    delete userResponse.activationTokenExpires;
-
-    cookiesService.setTokens(res, accessToken, refreshToken );
-
-    return res.status(200).json({
-      success: true,
-      message: "User logged in successfully",
-      data: userResponse,
-    });
+    const found = await User.findOne({ email, deletedAt: null }).select("+password");
+    if (!found || !await passwords.compare(password, found.password)) fail("Invalid email or password");
+    if (!found.isActive || !found.isAccountActivated) fail("Account is not active", 403);
+    // A successful login replaces the single existing session atomically.
+    const user = await User.findOneAndUpdate(
+      { _id: found._id, password: found.password, ...active },
+      { $inc: { tokenVersion: 1 }, $unset: { refreshToken: 1 }, $set: { lastLoginAt: new Date() } },
+      { returnDocument: "after" },
+    );
+    if (!user) fail("Account changed; sign in again", 409);
+    disconnectUser(user._id);
+    const tokens = tokensFor(user);
+    const saved = await User.updateOne(
+      { _id: user._id, tokenVersion: user.tokenVersion, ...active },
+      { $set: { refreshToken: hashToken(tokens.refreshToken) } },
+    );
+    if (!saved.matchedCount) fail("Session changed; sign in again", 409);
+    cookies.setTokens(res, tokens.accessToken, tokens.refreshToken);
+    const profile = await User.findById(user._id).select(publicFields);
+    return res.json({ success: true, message: "User logged in successfully", data: profile });
   };
-
-  // ==================== Logout ====================
 
   logout = async (req, res) => {
-    await User.findByIdAndUpdate(req.user._id, {
-      $unset: {
-        refreshToken: 1,
-      },
+    await User.updateOne({ _id: req.user._id, ...versionFilter(req.user.tokenVersion ?? 0) }, {
+      $inc: { tokenVersion: 1 }, $unset: { refreshToken: 1 },
     });
-
-    cookiesService.clearTokens(res);
-
-    return res.status(200).json({
-      success: true,
-      message: "User logged out successfully",
-    });
+    disconnectUser(req.user._id);
+    cookies.clearTokens(res);
+    return res.json({ success: true, message: "User logged out successfully" });
   };
-
-  // ==================== Get Current User ====================
 
   getCurrentUser = async (req, res) => {
-    const user = await User.findById(req.user._id)
-      .select(
-        "_id fullName email phone role department avatar isAccountActivated isActive lastLoginAt createdBy createdAt updatedAt",
-      ).populate("createdBy", "fullName email role",);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Current user retrieved successfully",
-      data: user,
-    });
+    const user = await User.findOne({ _id: req.user._id, deletedAt: null }).select(publicFields).populate("createdBy", "fullName email role");
+    if (!user) fail("User not found", 404);
+    return res.json({ success: true, data: user });
   };
-
-  // ==================== Request Password Change ====================
 
   requestPasswordChange = async (req, res) => {
-    const { currentPassword } = req.body;
-
-    const user = await User.findById(req.user._id).select(
-      "+password +passwordChangeCode +passwordChangeCodeExpires",
-    );
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    const isCurrentPasswordCorrect = await passwordService.compare(currentPassword, user.password);
-
-    if (!isCurrentPasswordCorrect) {
-      return res.status(400).json({
-        success: false,
-        message: "Current password is incorrect",
-      });
-    }
-
-    const verificationCode = verificationCodeService.generateVerificationCode();
-
-    user.passwordChangeCode = verificationCodeService.hashVerificationCode(verificationCode);
-
-    user.passwordChangeCodeExpires = new Date( Date.now() + 10 * 60 * 1000);
-
-    await user.save({validateBeforeSave: false});
-
+    const user = await User.findOne({ _id: req.user._id, ...active }).select("+password");
+    if (!user || !await passwords.compare(req.body.currentPassword, user.password)) fail("Current password is incorrect");
+    const code = codes.generateVerificationCode();
+    const hash = codes.hashVerificationCode(code);
+    const result = await User.updateOne({ _id: user._id, password: user.password, ...active, ...versionFilter(req.user.tokenVersion ?? 0) }, {
+      $set: { passwordChangeCode: hash, passwordChangeCodeExpires: new Date(Date.now() + 600000), passwordChangeAttempts: 0 },
+    });
+    if (!result.matchedCount) fail("Session changed; sign in again", 401);
     try {
-      await emailService.sendPasswordChangeVerificationEmail({
-        to: user.email,
-        fullName: user.fullName,
-        verificationCode,
-      });
+      await email.sendPasswordChangeVerificationEmail({ to: user.email, fullName: user.fullName, verificationCode: code });
     } catch (error) {
-      user.passwordChangeCode = undefined;
-      user.passwordChangeCodeExpires = undefined;
-
-      await user.save({validateBeforeSave: false});
-
+      await User.updateOne({ _id: user._id, passwordChangeCode: hash }, { $unset: { passwordChangeCode: 1, passwordChangeCodeExpires: 1, passwordChangeAttempts: 1 } });
       throw error;
     }
-
-    return res.status(200).json({
-      success: true,
-      message: "Verification code sent successfully",
-    });
+    return res.json({ success: true, message: "Verification code sent successfully" });
   };
-
-  // ==================== Verify Password Change ====================
 
   verifyPasswordChange = async (req, res) => {
-    const {verificationCode, newPassword } = req.body;
-
-    const user = await User.findById(req.user._id).select(
-      "+password +passwordChangeCode +passwordChangeCodeExpires +refreshToken",
-    );
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (!user.passwordChangeCode) {
-      return res.status(400).json({
-        success: false,
-        message: "No verification code found",
-      });
-    }
-
-    if (!user.passwordChangeCodeExpires || user.passwordChangeCodeExpires < Date.now()
-    ) {
-      user.passwordChangeCode = undefined;
-      user.passwordChangeCodeExpires = undefined;
-
-      await user.save({ validateBeforeSave: false });
-
-      return res.status(400).json({
-        success: false,
-        message: "Verification code has expired",
-      });
-    }
-
-    const isVerificationCodeValid =
-      verificationCodeService.verifyVerificationCode(
-        verificationCode,
-        user.passwordChangeCode,
-      );
-
-    if (!isVerificationCodeValid) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid verification code",
-      });
-    }
-
-    const isSamePassword = await passwordService.compare(
-      newPassword,
-      user.password,
-    );
-
-    if (isSamePassword) {
-      return res.status(400).json({
-        success: false,
-        message: "New password must be different from current password",
-      });
-    }
-
-    user.password = await passwordService.hash(newPassword);
-
-    user.passwordChangeCode = undefined;
-    user.passwordChangeCodeExpires = undefined;
-    user.refreshToken = undefined;
-
-    await user.save();
-
-    cookiesService.clearTokens(res);
-
-    return res.status(200).json({
-      success: true,
-      message: "Password changed successfully. Please sign in again.",
-    });
+    const user = await User.findOneAndUpdate({
+      _id: req.user._id, ...active, ...versionFilter(req.user.tokenVersion ?? 0),
+      passwordChangeCodeExpires: { $gt: new Date() }, passwordChangeAttempts: { $lt: 5 },
+    }, { $inc: { passwordChangeAttempts: 1 } }, { returnDocument: "after" }).select("+password +passwordChangeCode");
+    if (!user || !user.passwordChangeCode || !codes.verifyVerificationCode(req.body.verificationCode, user.passwordChangeCode)) fail("Invalid, expired or exhausted verification code");
+    if (await passwords.compare(req.body.newPassword, user.password)) fail("New password must be different");
+    const password = await passwords.hash(req.body.newPassword);
+    const result = await User.updateOne({
+      _id: user._id, ...active, ...versionFilter(user.tokenVersion ?? 0), password: user.password,
+      passwordChangeCode: user.passwordChangeCode, passwordChangeCodeExpires: { $gt: new Date() },
+    }, { $set: { password }, $inc: { tokenVersion: 1 }, $unset: sensitiveUnset });
+    if (!result.matchedCount) fail("Verification code was consumed or expired", 409);
+    disconnectUser(user._id);
+    cookies.clearTokens(res);
+    return res.json({ success: true, message: "Password changed. Please sign in again." });
   };
-
-  // ==================== Forgot Password ====================
 
   forgotPassword = async (req, res) => {
-    const { email } = req.body;
-
-    const responseMessage =
-      "If an account exists for this email address, you will receive password reset instructions shortly.";
-
-    const user = await User.findOne({
-      email: email.toLowerCase().trim(),
-    });
-
-    if (
-      !user ||
-      !user.isAccountActivated ||
-      !user.isActive
-    ) {
-      return res.status(200).json({
-        success: true,
-        message: responseMessage,
-      });
+    const message = "If an account exists for this email address, you will receive password reset instructions shortly.";
+    const token = codes.generateResetToken();
+    const hash = codes.hashResetToken(token);
+    const user = await User.findOneAndUpdate({ email: req.body.email, ...active }, {
+      $set: { passwordResetToken: hash, passwordResetExpires: new Date(Date.now() + 900000) },
+    }, { returnDocument: "after" });
+    if (user) {
+      try {
+        await email.sendPasswordResetEmail({ to: user.email, fullName: user.fullName, resetUrl: `${getFrontendUrl()}/reset-password/${token}` });
+      } catch (error) {
+        await User.updateOne({ _id: user._id, passwordResetToken: hash }, { $unset: { passwordResetToken: 1, passwordResetExpires: 1 } });
+        console.error("Password reset email failed:", error.message);
+      }
     }
-
-    const resetToken =
-      verificationCodeService.generateResetToken();
-
-    user.passwordResetToken =
-      verificationCodeService.hashResetToken(
-        resetToken,
-      );
-
-    user.passwordResetExpires = new Date(
-      Date.now() + 15 * 60 * 1000,
-    );
-
-    await user.save({
-      validateBeforeSave: false,
-    });
-
-    const frontendUrl =
-      process.env.FRONTEND_URL ||
-      "http://localhost:5173";
-
-    const resetUrl =
-      `${frontendUrl}/reset-password/${resetToken}`;
-
-    try {
-      await emailService.sendPasswordResetEmail({
-        to: user.email,
-        fullName: user.fullName,
-        resetUrl,
-      });
-    } catch (error) {
-      user.passwordResetToken = undefined;
-      user.passwordResetExpires = undefined;
-
-      await user.save({
-        validateBeforeSave: false,
-      });
-
-      throw error;
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: responseMessage,
-    });
+    return res.json({ success: true, message });
   };
-
-  // ==================== Reset Password ====================
 
   resetPassword = async (req, res) => {
-    const { token } = req.params;
-
-    const { newPassword } = req.body;
-
-    const hashedToken =
-      verificationCodeService.hashResetToken(
-        token,
-      );
-
-    const user = await User.findOne({
-      passwordResetToken: hashedToken,
-
-      passwordResetExpires: {
-        $gt: new Date(),
-      },
-
-      isAccountActivated: true,
-
-      isActive: true,
-    }).select(
-      "+password +passwordResetToken +passwordResetExpires +refreshToken",
-    );
-
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired password reset token",
-      });
-    }
-
-    const isSamePassword = await passwordService.compare(
-      newPassword,
-      user.password,
-    );
-
-    if (isSamePassword) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "New password must be different from your current password",
-      });
-    }
-
-    user.password = await passwordService.hash(newPassword);
-
-    user.passwordResetToken = undefined;
-    user.passwordResetExpires = undefined;
-
-    user.passwordChangeCode = undefined;
-    user.passwordChangeCodeExpires = undefined;
-
-    user.refreshToken = undefined;
-
-    await user.save();
-
-    cookiesService.clearTokens(res);
-
-    return res.status(200).json({
-      success: true,
-      message: "Password reset successfully. Please sign in again.",
-    });
+    const hash = codes.hashResetToken(req.params.token);
+    const user = await User.findOne({ ...active, passwordResetToken: hash, passwordResetExpires: { $gt: new Date() } }).select("+password");
+    if (!user) fail("Invalid or expired password reset token");
+    if (await passwords.compare(req.body.newPassword, user.password)) fail("New password must be different");
+    const password = await passwords.hash(req.body.newPassword);
+    const result = await User.updateOne({
+      _id: user._id, ...active, passwordResetToken: hash, passwordResetExpires: { $gt: new Date() },
+      ...versionFilter(user.tokenVersion ?? 0),
+    }, { $set: { password }, $inc: { tokenVersion: 1 }, $unset: sensitiveUnset });
+    if (!result.matchedCount) fail("Password reset token was consumed or expired", 409);
+    disconnectUser(user._id);
+    cookies.clearTokens(res);
+    return res.json({ success: true, message: "Password reset. Please sign in again." });
   };
-
-  // ==================== Refresh Token ====================
 
   refreshToken = async (req, res) => {
-    const currentRefreshToken =
-      cookiesService.getRefreshToken(req);
-
-    if (!currentRefreshToken) {
-      cookiesService.clearTokens(res);
-
-      return res.status(401).json({
-        success: false,
-        message: "No refresh token provided",
-      });
-    }
-
-    let decodedToken;
-
-    try {
-      decodedToken =
-        jwtService.verifyRefreshToken(
-          currentRefreshToken,
-        );
-    } catch (error) {
-      cookiesService.clearTokens(res);
-
-      return res.status(401).json({
-        success: false,
-        message:
-          error.name === "TokenExpiredError"
-            ? "Refresh token has expired"
-            : "Invalid refresh token",
-      });
-    }
-
-    const user = await User.findById(
-      decodedToken.id,
-    ).select("+refreshToken");
-
-    if (!user || !user.refreshToken) {
-      cookiesService.clearTokens(res);
-
-      return res.status(401).json({
-        success: false,
-        message: "Refresh session is no longer valid",
-      });
-    }
-
-    const providedRefreshTokenHash =
-      hashRefreshToken(
-        currentRefreshToken,
-      );
-
-    const isRefreshTokenValid =
-      compareRefreshTokens(
-        providedRefreshTokenHash,
-        user.refreshToken,
-      );
-
-    if (!isRefreshTokenValid) {
-      user.refreshToken = undefined;
-
-      await user.save({
-        validateBeforeSave: false,
-      });
-
-      cookiesService.clearTokens(res);
-
-      return res.status(401).json({
-        success: false,
-        message: "Refresh token has been revoked",
-      });
-    }
-
-    if (!user.isAccountActivated) {
-      user.refreshToken = undefined;
-
-      await user.save({
-        validateBeforeSave: false,
-      });
-
-      cookiesService.clearTokens(res);
-
-      return res.status(403).json({
-        success: false,
-        message: "Account has not been activated",
-      });
-    }
-
-    if (!user.isActive) {
-      user.refreshToken = undefined;
-
-      await user.save({
-        validateBeforeSave: false,
-      });
-
-      cookiesService.clearTokens(res);
-
-      return res.status(403).json({
-        success: false,
-        message: "Account is inactive",
-      });
-    }
-
-    const payload = {
-      id: user._id.toString(),
-      role: user.role,
-    };
-
-    const newAccessToken =
-      jwtService.generateAccessToken(
-        payload,
-      );
-
-    const newRefreshToken =
-      jwtService.generateRefreshToken(
-        payload,
-      );
-
-    user.refreshToken =
-      hashRefreshToken(
-        newRefreshToken,
-      );
-
-    await user.save({
-      validateBeforeSave: false,
-    });
-
-    cookiesService.setTokens(
-      res,
-      newAccessToken,
-      newRefreshToken,
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: "Token refreshed successfully",
-    });
+    const token = cookies.getRefreshToken(req);
+    let decoded;
+    try { decoded = jwt.verifyRefreshToken(token); }
+    catch { cookies.clearTokens(res); fail("Invalid or expired refresh token", 401); }
+    const user = await User.findOne({ _id: decoded.id, ...active, ...versionFilter(decoded.ver), refreshToken: hashToken(token) });
+    if (!user) fail("Refresh session is no longer valid", 401);
+    const tokens = tokensFor(user);
+    const result = await User.updateOne({
+      _id: user._id, ...active, ...versionFilter(decoded.ver), refreshToken: hashToken(token),
+    }, { $set: { refreshToken: hashToken(tokens.refreshToken) } });
+    // A losing concurrent request must not clear or revoke the winning session.
+    if (!result.matchedCount) fail("Refresh token already consumed; use the latest session", 401);
+    cookies.setTokens(res, tokens.accessToken, tokens.refreshToken);
+    return res.json({ success: true, message: "Token refreshed successfully" });
   };
 }
-
 module.exports = new AuthController();

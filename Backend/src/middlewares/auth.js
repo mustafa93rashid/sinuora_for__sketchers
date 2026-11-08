@@ -63,11 +63,11 @@ const auth = async (req, res, next) => {
 
     const user = await User.findById(decodedToken.id)
       .select(
-        "_id fullName email phone role department avatar isAccountActivated isActive",
+        "_id fullName email phone role avatar isAccountActivated isActive deletedAt tokenVersion",
       )
       .lean();
 
-    if (!user) {
+    if (!user || user.deletedAt || decodedToken.ver !== (user.tokenVersion ?? 0)) {
       return res.status(401).json({
         success: false,
         message: "Auth: Authenticated user was not found",

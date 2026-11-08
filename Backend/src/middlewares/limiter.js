@@ -89,7 +89,10 @@ const refreshTokenLimiter = createLimiter({
   message: "Too many refresh token requests. Please try again later.",
 });
 
+const activationLimiter = createLimiter({ windowMs: 15 * 60 * 1000, limit: 10, message: "Too many activation attempts" });
+
 module.exports = {
+  activationLimiter,
   signinLimiter,
   passwordChangeRequestLimiter,
   passwordChangeVerifyLimiter,

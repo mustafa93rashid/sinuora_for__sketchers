@@ -17,9 +17,7 @@ const ALLOWED_ROLES = [
 
 // ==================== Get Allowed Origins ====================
 
-const getAllowedOrigins = () => {
-  return [process.env.CLIENT_URL, process.env.DASHBOARD_URL].filter(Boolean);
-};
+const { getAllowedOrigins } = require("./origins");
 
 // ==================== Extract Access Token From Cookie Header ====================
 
@@ -69,6 +67,7 @@ const initializeSocket = (httpServer) => {
       methods: ["GET", "POST"],
     },
 
+    allowRequest: (req, callback) => callback(null, !req.headers.origin || getAllowedOrigins().includes(req.headers.origin)),
     transports: ["websocket", "polling"],
 
     pingTimeout: 20000,
@@ -105,10 +104,10 @@ const initializeSocket = (httpServer) => {
       }
 
       const user = await User.findById(decodedToken.id)
-        .select("_id role isActive isAccountActivated")
+        .select("_id role isActive isAccountActivated deletedAt tokenVersion")
         .lean();
 
-      if (!user) {
+      if (!user || user.deletedAt || decodedToken.ver !== (user.tokenVersion ?? 0)) {
         return next(new Error("Authenticated user was not found"));
       }
 
@@ -127,6 +126,8 @@ const initializeSocket = (httpServer) => {
       socket.user = {
         id: user._id.toString(),
         role: user.role,
+        tokenVersion: user.tokenVersion ?? 0,
+        expiresAt: decodedToken.exp * 1000,
       };
 
       return next();
@@ -138,6 +139,21 @@ const initializeSocket = (httpServer) => {
   // ==================== Handle Socket Connection ====================
 
   io.on("connection", (socket) => {
+    const expireTimer = setTimeout(() => socket.disconnect(true), Math.min(2147483647, Math.max(0, socket.user.expiresAt - Date.now())));
+    expireTimer.unref();
+    let checking = false;
+    const sessionTimer = setInterval(async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const user = await User.findById(socket.user.id).select("role isActive isAccountActivated deletedAt tokenVersion").lean();
+        if (!user || user.deletedAt || !user.isActive || !user.isAccountActivated || user.role !== socket.user.role ||
+            (user.tokenVersion ?? 0) !== socket.user.tokenVersion || Date.now() >= socket.user.expiresAt) socket.disconnect(true);
+      } catch { socket.disconnect(true); }
+      finally { checking = false; }
+    }, 5000);
+    sessionTimer.unref();
+    socket.once("disconnect", () => { clearTimeout(expireTimer); clearInterval(sessionTimer); });
     const userRoom = `user:${socket.user.id}`;
 
     const roleRoom = `role:${socket.user.role}`;
@@ -228,7 +244,10 @@ const emitToRoles = (roles, eventName, payload) => {
 
 // ==================== Exports ====================
 
+const disconnectUser = userId => { if (io) io.in(`user:${userId}`).disconnectSockets(true); };
+
 module.exports = {
+  disconnectUser,
   initializeSocket,
   getIO,
   emitToUser,

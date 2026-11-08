@@ -1,4 +1,4 @@
-const { body } = require("express-validator");
+const { body, param } = require("express-validator");
 
 const validate = require("../middlewares/validate");
 
@@ -62,7 +62,7 @@ const loginValidation = [
     .withMessage("Password is required")
     .bail()
     .isString()
-    .withMessage("Password must be a string"),
+    .withMessage("Password must be a string").bail().isLength({ max: 128 }),
 
   validate,
 ];
@@ -75,7 +75,7 @@ const requestPasswordChangeValidation = [
     .withMessage("Current password is required")
     .bail()
     .isString()
-    .withMessage("Current password must be a string"),
+    .withMessage("Current password must be a string").bail().isLength({ max: 128 }),
 
   validate,
 ];
@@ -116,6 +116,7 @@ const forgotPasswordValidation = [
 // ==================== Reset Password Validation ====================
 
 const resetPasswordValidation = [
+  param("token").isHexadecimal().isLength({ min: 64, max: 64 }),
   passwordValidationRules(),
 
   confirmPasswordValidation,

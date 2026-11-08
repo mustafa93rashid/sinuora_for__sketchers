@@ -73,11 +73,11 @@ const verifyEmailConnection = async () => {
 
 // ==================== Send Password Reset Email ====================
 
-const sendPasswordResetEmail = async ({ to, firstName, resetUrl }) => {
+const sendPasswordResetEmail = async ({ to, fullName, resetUrl }) => {
   const subject = "Reset Your LSA Password";
 
   const text = `
-Hello ${firstName || "User"},
+Hello ${fullName || "User"},
 
 We received a request to reset your LSA account password.
 
@@ -91,7 +91,7 @@ If you did not request this action, you can safely ignore this email.
   `.trim();
 
   const html = createPasswordResetTemplate({
-    fullName: firstName,
+    fullName,
     resetUrl,
   });
 

@@ -1,12 +1,17 @@
+const { changeUser } = require("../helpers/userAdmin.helper");
+const { getDashboardUrl } = require("../config/frontend");
+const { versionFilter, disconnectUser, sensitiveUnset } = require("../helpers/session.helper");
+const cookiesService = require("../utils/cookiesService");
+const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
+const { escapeRegex } = require("../helpers/search.helper");
 const crypto = require("crypto");
 const User = require("../models/user.model");
-const cloudinary = require("../config/cloudinary");
 
 const passwordService = require("../utils/passwordService");
 const verificationCodeService = require("../utils/verificationCodeService");
 
 const emailService = require("../services/email.service");
-const { replaceImage, deleteImage } = require("../services/cloudinary.service");
+const { uploadImage, saveWithImages } = require("../services/cloudinary.service");
 
 class UserController {
   // ==================== Get Profile ====================
@@ -36,261 +41,70 @@ class UserController {
   // here; this comment exists so a future edit doesn't "helpfully" re-add
   // direct email writes to this endpoint.
   updateProfile = async (req, res) => {
-    const { fullName, phone} = req.body;
-
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (fullName !== undefined) {
-      user.fullName = fullName;
-    }
-
-    if (phone !== undefined) {
-      user.phone = phone;
-    }
-
-    if (req.file) {
-      const uploadedImage = await replaceImage({
-        oldPublicId: user.avatar?.publicId,
-        file: req.file,
-        folder: "users",
-        prefix: user._id.toString(),
-      });
-
-      user.avatar = {
-        url: uploadedImage.url,
-        publicId: uploadedImage.publicId,
-      };
-    }
-
-    await user.save();
-
-    const updatedUser = await User.findById(user._id).select(
-      "-password -passwordResetToken -passwordResetExpires -activationToken -activationTokenExpires",
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: "Profile updated successfully",
-      data: updatedUser,
-    });
+    const user = await User.findOne({ _id: req.user._id, deletedAt: null });
+    if (!user) fail("User not found", 404);
+    if (req.body.fullName !== undefined) user.fullName = req.body.fullName;
+    if (req.body.phone !== undefined) user.phone = req.body.phone;
+    await user.validate();
+    const oldImage = user.avatar?.publicId;
+    const images = req.file ? [await uploadImage(req.file, "sinuora/users")] : [];
+    if (images.length) user.avatar = images[0];
+    await saveWithImages(user, images, images.length ? [oldImage] : []);
+    return res.json({ success: true, data: user });
   };
 
   // ==================== Request Email Change ====================
   requestEmailChange = async (req, res) => {
-    const { newEmail } = req.body;
-
-    const normalizedEmail = newEmail.toLowerCase().trim();
-
-    if (normalizedEmail === req.user.email) {
-      return res.status(400).json({
-        success: false,
-        message: "New email must be different from your current email.",
-      });
-    }
-
-    const existingUser = await User.findOne({
-      email: normalizedEmail,
-      _id: {
-        $ne: req.user._id,
-      },
+    const normalizedEmail = req.body.newEmail.toLowerCase().trim();
+    const user = await User.findOne({ _id: req.user._id, deletedAt: null, isActive: true }).select("+password");
+    if (!user || !await passwordService.compare(req.body.currentPassword, user.password)) fail("Current password is incorrect");
+    if (normalizedEmail === user.email) fail("New email must be different");
+    if (await User.exists({ email: normalizedEmail })) fail("Email already in use", 409);
+    const code = verificationCodeService.generateVerificationCode();
+    const hash = verificationCodeService.hashVerificationCode(code);
+    const updated = await User.updateOne({ _id: user._id, password: user.password, deletedAt: null, isActive: true, ...versionFilter(req.user.tokenVersion ?? 0) }, {
+      $set: { pendingEmail: normalizedEmail, emailChangeCode: hash, emailChangeCodeExpires: new Date(Date.now() + 600000), emailChangeAttempts: 0 },
     });
-
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "A user with this email address already exists",
-      });
-    }
-
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    const verificationCode = verificationCodeService.generateVerificationCode();
-
-    user.pendingEmail = normalizedEmail;
-
-    user.emailChangeCode =
-      verificationCodeService.hashVerificationCode(verificationCode);
-
-    user.emailChangeCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
-
-    await user.save({
-      validateBeforeSave: false,
-    });
-
+    if (!updated.matchedCount) fail("Session changed; sign in again", 401);
     try {
-      // Sent to the NEW address only — the current email is never notified
-      // and never touched until verification succeeds.
-      await emailService.sendEmailChangeVerificationEmail({
-        to: normalizedEmail,
-        fullName: user.fullName,
-        verificationCode,
-      });
+      await emailService.sendEmailChangeVerificationEmail({ to: normalizedEmail, fullName: user.fullName, verificationCode: code });
     } catch (error) {
-      user.pendingEmail = undefined;
-      user.emailChangeCode = undefined;
-      user.emailChangeCodeExpires = undefined;
-
-      await user.save({
-        validateBeforeSave: false,
-      });
-
+      await User.updateOne({ _id: user._id, emailChangeCode: hash }, { $unset: { pendingEmail: 1, emailChangeCode: 1, emailChangeCodeExpires: 1, emailChangeAttempts: 1 } });
       throw error;
     }
-
-    return res.status(200).json({
-      success: true,
-      message: "Verification code sent to the new email address.",
-    });
+    return res.json({ success: true, message: "Verification code sent to the new email address" });
   };
 
   // ==================== Verify Email Change ====================
   verifyEmailChange = async (req, res) => {
-    const { verificationCode } = req.body;
-
-    const user = await User.findById(req.user._id).select(
-      "+pendingEmail +emailChangeCode +emailChangeCodeExpires",
-    );
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (!user.pendingEmail || !user.emailChangeCode) {
-      return res.status(400).json({
-        success: false,
-        message: "No pending email change found.",
-      });
-    }
-
-    if (
-      !user.emailChangeCodeExpires ||
-      user.emailChangeCodeExpires < Date.now()
-    ) {
-      // Only the code is cleared on expiry — `pendingEmail` is kept so
-      // Resend can issue a fresh code without asking the user to retype
-      // the new address.
-      user.emailChangeCode = undefined;
-      user.emailChangeCodeExpires = undefined;
-
-      await user.save({
-        validateBeforeSave: false,
-      });
-
-      return res.status(400).json({
-        success: false,
-        message: "Verification code has expired",
-      });
-    }
-
-    const isVerificationCodeValid =
-      verificationCodeService.verifyVerificationCode(
-        verificationCode,
-        user.emailChangeCode,
-      );
-
-    if (!isVerificationCodeValid) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid verification code",
-      });
-    }
-
-    // Re-checked here, not just at request time — someone else could have
-    // claimed this address while verification was pending.
-    const existingUser = await User.findOne({
-      email: user.pendingEmail,
-      _id: {
-        $ne: user._id,
-      },
+    const user = await User.findOneAndUpdate({
+      _id: req.user._id, deletedAt: null, isActive: true, ...versionFilter(req.user.tokenVersion ?? 0),
+      emailChangeCodeExpires: { $gt: new Date() }, emailChangeAttempts: { $lt: 5 },
+    }, { $inc: { emailChangeAttempts: 1 } }, { returnDocument: "after" }).select("+pendingEmail +emailChangeCode");
+    if (!user?.pendingEmail || !user.emailChangeCode || !verificationCodeService.verifyVerificationCode(req.body.verificationCode, user.emailChangeCode)) fail("Invalid, expired or exhausted verification code");
+    const runTransaction = require("../helpers/transaction.helper");
+    const { queueSecurityEmail } = require("../services/maintenance.service");
+    await runTransaction(async session => {
+      const result = await User.updateOne({
+        _id: user._id, deletedAt: null, isActive: true, ...versionFilter(user.tokenVersion ?? 0),
+        emailChangeCode: user.emailChangeCode, pendingEmail: user.pendingEmail, emailChangeCodeExpires: { $gt: new Date() },
+      }, { $set: { email: user.pendingEmail }, $inc: { tokenVersion: 1, __v: 1 }, $unset: sensitiveUnset }, { session, runValidators: true });
+      if (!result.matchedCount) fail("Verification code already consumed or expired", 409);
+      await queueSecurityEmail({ to: user.email, subject: "Your account email was changed", text: "Your account email address was changed. If you did not authorize this, contact your administrator immediately." }, session);
     });
-
-    if (existingUser) {
-      user.pendingEmail = undefined;
-      user.emailChangeCode = undefined;
-      user.emailChangeCodeExpires = undefined;
-
-      await user.save({
-        validateBeforeSave: false,
-      });
-
-      return res.status(409).json({
-        success: false,
-        message:
-          "This email address was just claimed by another account. Please request a new verification code with a different address.",
-      });
-    }
-
-    user.email = user.pendingEmail;
-    user.pendingEmail = undefined;
-    user.emailChangeCode = undefined;
-    user.emailChangeCodeExpires = undefined;
-
-    await user.save();
-
-    const updatedUser = await User.findById(user._id).select(
-      "-password -passwordResetToken -passwordResetExpires -activationToken -activationTokenExpires",
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: "Email address updated successfully.",
-      data: updatedUser,
-    });
+    disconnectUser(user._id);
+    cookiesService.clearTokens(res);
+    return res.json({ success: true, message: "Email updated. Please sign in again." });
   };
 
   // ==================== Delete Profile Image ====================
   deleteProfileImage = async (req, res) => {
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (!user.avatar?.publicId) {
-      return res.status(404).json({
-        success: false,
-        message: "Profile image not found",
-      });
-    }
-
-    await deleteImage(user.avatar.publicId);
-
-    user.avatar = {
-      url: null,
-      publicId: null,
-    };
-
-    await user.save({
-      validateBeforeSave: false,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Profile image deleted successfully",
-      data: {
-        avatar: user.avatar,
-      },
-    });
+    const user = await User.findOne({ _id: req.user._id, deletedAt: null });
+    if (!user?.avatar?.publicId) fail("Profile image not found", 404);
+    const oldImage = user.avatar.publicId;
+    user.avatar = { url: null, publicId: null };
+    await saveWithImages(user, [], [oldImage]);
+    return res.json({ success: true, data: { avatar: user.avatar } });
   };
 
   // ==================== Get All Users ====================
@@ -300,30 +114,29 @@ class UserController {
       limit = 10,
       search,
       role,
-      department,
       isActive,
-    } = req.query;
+    } = (req.validatedQuery || {});
 
-    const filter = {};
+    const filter = { deletedAt: null };
 
     if (search) {
       filter.$or = [
         {
           fullName: {
-            $regex: search,
+            $regex: escapeRegex(search),
             $options: "i",
           },
         },
         {
           email: {
-            $regex: search,
+            $regex: escapeRegex(search),
             $options: "i",
           },
         },
 
         {
           phone: {
-            $regex: search,
+            $regex: escapeRegex(search),
             $options: "i",
           },
         },
@@ -334,12 +147,8 @@ class UserController {
       filter.role = role;
     }
 
-    if (department) {
-      filter.department = department;
-    }
-
     if (isActive !== undefined) {
-      filter.isActive = isActive === "true";
+      filter.isActive = isActive;
     }
 
     const pageNumber = Math.max(Number(page), 1);
@@ -430,7 +239,7 @@ class UserController {
       createdBy: req.user._id,
     });
 
-    const dashboardUrl = process.env.DASHBOARD_URL || "http://localhost:5173";
+    const dashboardUrl = getDashboardUrl();
 
     const activationUrl = `${dashboardUrl}/activate-account/${activationToken}`;
 
@@ -459,278 +268,37 @@ class UserController {
 
   // ==================== Activate Account ====================
   activateAccount = async (req, res) => {
-    const { token, password, confirmPassword } = req.body;
-
-    if (!token) {
-      return res.status(400).json({
-        success: false,
-        message: "Activation token is required.",
-      });
-    }
-
-    if (!password || !confirmPassword) {
-      return res.status(400).json({
-        success: false,
-        message: "Password and confirm password are required.",
-      });
-    }
-
-    if (password !== confirmPassword) {
-      return res.status(400).json({
-        success: false,
-        message: "Passwords do not match.",
-      });
-    }
-
-    const hashedActivationToken = verificationCodeService.hashResetToken(
-      token.trim(),
-    );
-
-    const user = await User.findOne({
-      activationToken: hashedActivationToken,
-      activationTokenExpires: {
-        $gt: new Date(),
-      },
-    }).select("+activationToken +activationTokenExpires +password");
-
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired activation token.",
-      });
-    }
-
-    if (user.isAccountActivated) {
-      return res.status(400).json({
-        success: false,
-        message: "Account is already activated.",
-      });
-    }
-
-    user.password = await passwordService.hash(password);
-
-    user.isActive = true;
-    user.isAccountActivated = true;
-    user.activationToken = undefined;
-    user.activationTokenExpires = undefined;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Account activated successfully. You can now sign in.",
-    });
+    const { token, password } = req.body;
+    const hash = verificationCodeService.hashResetToken(token);
+    const hashedPassword = await passwordService.hash(password);
+    const user = await User.findOneAndUpdate({
+      activationToken: hash, activationTokenExpires: { $gt: new Date() },
+      isAccountActivated: false, deletedAt: null,
+    }, {
+      $set: { password: hashedPassword, isAccountActivated: true, isActive: true },
+      $inc: { tokenVersion: 1, __v: 1 },
+      $unset: { activationToken: 1, activationTokenExpires: 1, ...sensitiveUnset },
+    }, { returnDocument: "after", runValidators: true });
+    if (!user) fail("Invalid or expired activation token");
+    return res.json({ success: true, message: "Account activated. Please sign in." });
   };
 
   // ==================== Update User Status ====================
   updateUserStatus = async (req, res) => {
-    const { isActive } = req.body;
-
-    if (req.params.id === req.user.id) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot change your own account status",
-      });
-    }
-
-    if (typeof isActive !== "boolean") {
-      return res.status(400).json({
-        success: false,
-        message: "isActive must be a boolean value",
-      });
-    }
-
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (
-      user.role === "superadmin" &&
-      user.isActive === true &&
-      isActive === false
-    ) {
-      const activeSuperAdminsCount = await User.countDocuments({
-        role: "superadmin",
-        isActive: true,
-      });
-
-      if (activeSuperAdminsCount <= 1) {
-        return res.status(403).json({
-          success: false,
-          message: "The last active Super Admin cannot be deactivated",
-        });
-      }
-    }
-
-    if (user.isActive === isActive) {
-      return res.status(400).json({
-        success: false,
-        message: isActive
-          ? "User account is already active"
-          : "User account is already inactive",
-      });
-    }
-
-    user.isActive = isActive;
-
-    await user.save({
-      validateBeforeSave: false,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: isActive
-        ? "User activated successfully"
-        : "User deactivated successfully",
-      data: {
-        id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        isActive: user.isActive,
-      },
-    });
+    const user = await changeUser(req.user, req.params.id, { isActive: req.body.isActive });
+    return res.json({ success: true, data: { id: user._id, fullName: user.fullName, isActive: user.isActive } });
   };
 
   // ==================== Update User Role ====================
   updateUserRole = async (req, res) => {
-    const { role } = req.body;
-
-    const allowedRoles = [
-        "superadmin",
-        "manager",
-        "saler",
-        "follow-up",
-    ];
-
-    if (req.params.id === req.user.id) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot change your own role",
-      });
-    }
-
-    if (!role) {
-      return res.status(400).json({
-        success: false,
-        message: "Role is required",
-      });
-    }
-
-    if (!allowedRoles.includes(role)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid user role",
-      });
-    }
-
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (user.role === role) {
-      return res.status(400).json({
-        success: false,
-        message: "User already has this role",
-      });
-    }
-
-    if (
-      user.role === "superadmin" &&
-      role !== "superadmin" &&
-      user.isActive === true
-    ) {
-      const activeSuperAdminsCount = await User.countDocuments({
-        role: "superadmin",
-        isActive: true,
-      });
-
-      if (activeSuperAdminsCount <= 1) {
-        return res.status(403).json({
-          success: false,
-          message: "The last active Super Admin cannot have its role changed",
-        });
-      }
-    }
-
-    user.role = role;
-
-    await user.save({
-      validateBeforeSave: false,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "User role updated successfully",
-      data: {
-        id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        isActive: user.isActive,
-      },
-    });
+    const user = await changeUser(req.user, req.params.id, { role: req.body.role });
+    return res.json({ success: true, data: { id: user._id, fullName: user.fullName, role: user.role } });
   };
 
   // ==================== Delete User ====================
   deleteUser = async (req, res) => {
-    const userId = req.params.id;
-
-    if (userId === req.user._id.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot delete your own account",
-      });
-    }
-
-    const user = await User.findById(userId);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (user.role === "superadmin" && user.isActive) {
-      const activeSuperAdminsCount = await User.countDocuments({
-        role: "superadmin",
-        isActive: true,
-      });
-
-      if (activeSuperAdminsCount <= 1) {
-        return res.status(403).json({
-          success: false,
-          message: "The last active Super Admin cannot be deleted",
-        });
-      }
-    }
-
-    if (user.avatar?.publicId) {
-      await deleteImage(user.avatar.publicId);
-    }
-
-    await user.deleteOne();
-
-    return res.status(200).json({
-      success: true,
-      message: "User deleted successfully",
-      data: {
-        id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-      },
-    });
+    const user = await changeUser(req.user, req.params.id, { deletedAt: new Date(), isActive: false });
+    return res.json({ success: true, message: "User deactivated and retained for audit history", data: { id: user._id } });
   };
 }
 

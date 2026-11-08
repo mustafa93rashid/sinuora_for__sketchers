@@ -8,7 +8,15 @@ const asyncHandler = require("../utils/asyncHandler");
 
 const orderController = require("../controllers/order.controller");
 
-const { createOrderValidation, updateOrderValidation, orderIdValidation, orderActionValidation, cancelOrderValidation, returnOrderValidation, getOrdersValidation } = require("../validation/order.validation");
+const {
+  createOrderValidation,
+  updateOrderValidation,
+  orderIdValidation,
+  orderActionValidation,
+  cancelOrderValidation,
+  returnOrderValidation,
+  getOrdersValidation,
+} = require("../validation/order.validation");
 
 // ==================== Orders ====================
 
@@ -47,5 +55,7 @@ router.post("/:id/returns", [auth, role(["superadmin", "manager", "saler", "foll
 // ==================== Order Status History ====================
 
 router.get("/:id/history", [auth], orderIdValidation, asyncHandler(orderController.getOrderStatusHistory));
+
+// ==================== Export Router ====================
 
 module.exports = router;

@@ -1,6 +1,7 @@
 const {
   body,
   param,
+  query,
 } = require("express-validator");
 
 const validate = require("../middlewares/validate");
@@ -62,28 +63,13 @@ const updateProfileValidation = [
       "Please enter a valid phone number",
     ),
 
-  body("department")
-    .optional()
-    .trim()
-    .notEmpty()
-    .withMessage(
-      "Department cannot be empty",
-    )
-    .bail()
-    .isLength({
-      min: 2,
-      max: 100,
-    })
-    .withMessage(
-      "Department must be between 2 and 100 characters",
-    ),
+  body("department").custom(value => { if (value !== undefined) throw new Error("Department is not supported"); return true; }),
 
   body().custom(
     (value, { req }) => {
       const editableFields = [
         "fullName",
         "phone",
-        "department",
       ];
 
       const hasTextField =
@@ -112,6 +98,7 @@ const updateProfileValidation = [
 // ==================== Request Email Change Validation ====================
 
 const requestEmailChangeValidation = [
+  body("currentPassword").isString().bail().isLength({ min: 1, max: 128 }),
   body("newEmail")
     .trim()
     .notEmpty()
@@ -188,6 +175,7 @@ const createUserValidation = [
 
 const activateAccountValidation = [
   body("token")
+    .isString().bail().isHexadecimal().isLength({ min: 64, max: 64 })
     .trim()
     .notEmpty()
     .withMessage("Activation token is required"),
@@ -288,8 +276,19 @@ const updateUserRoleValidation = [
 
 // ==================== Exports ====================
 
+const getUsersValidation = [
+  query("page").optional().isInt({ min: 1, max: 1000000 }).toInt(),
+  query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+  query("search").optional().isString().bail().trim().isLength({ max: 150 }),
+  query("role").optional().isIn(allowedRoles),
+  query("isActive").optional().isBoolean().toBoolean(),
+  query("department").custom(value => { if (value !== undefined) throw new Error("Department is not supported"); return true; }),
+  validate,
+];
+
 module.exports = {
   allowedRoles,
+  getUsersValidation,
 
   updateProfileValidation,
   requestEmailChangeValidation,

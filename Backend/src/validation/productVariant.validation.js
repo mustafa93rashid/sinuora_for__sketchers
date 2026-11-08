@@ -1,3 +1,4 @@
+const { matchedData } = require("express-validator");
 const {
   body,
   param,
@@ -43,6 +44,7 @@ const handleValidationErrors = (
     });
   }
 
+  req.validatedQuery = matchedData(req, { locations: ["query"] });
   next();
 };
 
@@ -192,6 +194,7 @@ const getProductVariantsValidation = [
     .optional()
     .isInt({
       min: 1,
+      max: 1000000,
     })
     .withMessage(
       "Page must be a positive integer",
@@ -218,7 +221,7 @@ const getProductVariantsValidation = [
     .optional()
     .isString()
     .withMessage("Color must be a string")
-    .trim(),
+    .trim().isLength({ max: 150 }),
 
   query("size")
     .optional()

@@ -1,3 +1,4 @@
+const { matchedData } = require("express-validator");
 const {
   body,
   param,
@@ -25,6 +26,7 @@ const handleValidationErrors = (
     });
   }
 
+  req.validatedQuery = matchedData(req, { locations: ["query"] });
   next();
 };
 
@@ -112,23 +114,19 @@ const createProductValidation = [
 
   body("costPrice")
     .optional()
-    .isFloat({
-      min: 0,
-    })
+    .isInt({ min: 0, max: Number.MAX_SAFE_INTEGER })
     .withMessage(
       "Cost price must be 0 or greater",
     )
-    .toFloat(),
+    .toInt(),
 
   body("defaultSalePrice")
     .optional()
-    .isFloat({
-      min: 0,
-    })
+    .isInt({ min: 0, max: Number.MAX_SAFE_INTEGER })
     .withMessage(
       "Sale price must be 0 or greater",
     )
-    .toFloat(),
+    .toInt(),
 
   handleValidationErrors,
 ];
@@ -221,31 +219,21 @@ const updateProductValidation = [
 
   body("costPrice")
     .optional()
-    .isFloat({
-      min: 0,
-    })
+    .isInt({ min: 0, max: Number.MAX_SAFE_INTEGER })
     .withMessage(
       "Cost price must be 0 or greater",
     )
-    .toFloat(),
+    .toInt(),
 
   body("defaultSalePrice")
     .optional()
-    .isFloat({
-      min: 0,
-    })
+    .isInt({ min: 0, max: Number.MAX_SAFE_INTEGER })
     .withMessage(
       "Sale price must be 0 or greater",
     )
-    .toFloat(),
+    .toInt(),
 
-  body("isActive")
-    .optional()
-    .isBoolean()
-    .withMessage(
-      "isActive must be true or false",
-    )
-    .toBoolean(),
+  body("isActive").custom(value => { if (value !== undefined) throw new Error("Use archive or restore to change product status"); return true; }),
 
   handleValidationErrors,
 ];
@@ -281,6 +269,7 @@ const getProductsValidation = [
     .optional()
     .isInt({
       min: 1,
+      max: 1000000,
     })
     .withMessage(
       "Page must be a positive integer",
@@ -304,13 +293,13 @@ const getProductsValidation = [
     .withMessage(
       "Search must be a string",
     )
-    .trim(),
+    .trim().isLength({ max: 150 }),
 
   query("brand")
     .optional()
     .isString()
     .withMessage("Brand must be a string")
-    .trim(),
+    .trim().isLength({ max: 150 }),
 
   query("category")
     .optional()
@@ -318,7 +307,7 @@ const getProductsValidation = [
     .withMessage(
       "Category must be a string",
     )
-    .trim(),
+    .trim().isLength({ max: 150 }),
 
   query("isActive")
     .optional()

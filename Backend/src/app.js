@@ -1,4 +1,10 @@
-require("dotenv").config();
+// ==================== Load Environment Variables ====================
+
+if (require.main === module) {
+  require("dotenv").config();
+}
+
+// ==================== Dependencies ====================
 
 const express = require("express");
 const http = require("http");
@@ -6,36 +12,60 @@ const mongoose = require("mongoose");
 const cookies = require("cookie-parser");
 const morgan = require("morgan");
 const cors = require("cors");
+const helmet = require("helmet");
 
-const { initializeSocket } = require("./config/socket");
+// ==================== Configuration ====================
+
+const {
+  initializeSocket,
+  getIO,
+} = require("./config/socket");
+
+const {
+  getAllowedOrigins,
+} = require("./config/origins");
+
+const {
+  validateConfiguration,
+  initializeDatabase,
+} = require("./config/startup");
+
+// ==================== Middleware ====================
 
 const errorHandler = require("./middlewares/errorHandler");
 const notFound = require("./middlewares/notFound");
 const xssSanitize = require("./middlewares/xss");
 
-const app = express();
+// ==================== Services ====================
 
-app.set("trust proxy", 1);
+const {
+  startMaintenance,
+  stopMaintenance,
+} = require("./services/maintenance.service");
+
+// ==================== Application Setup ====================
+
+const app = express();
 
 const server = http.createServer(app);
 
-//=========================================================================
-// CORS Configuration
-//=========================================================================
- 
-const allowedOrigins = [
-  process.env.DASHBOARD_URL,
-  process.env.WEBSITE_URL,
-  process.env.DASHBOARD_URL_LOCAL,
-  process.env.WEBSITE_URL_LOCAL,
-  process.env.VERCEL_URL,
-].filter(Boolean);
+app.use(helmet());
+
+app.set(
+  "trust proxy",
+  Number(process.env.TRUST_PROXY_HOPS || 0),
+);
+
+// ==================== CORS Configuration ====================
+
+const allowedOrigins = getAllowedOrigins();
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests without Origin header
-      // such as Postman, curl, health checks, server-to-server requests
+      // Allow requests without an Origin header.
+      // Examples: Postman, health checks and server-to-server requests.
+
       if (!origin) {
         return callback(null, true);
       }
@@ -44,23 +74,30 @@ app.use(
         return callback(null, true);
       }
 
-      return callback(new Error("Not allowed by CORS"));
+      const error = new Error("Not allowed by CORS");
+
+      error.statusCode = 403;
+
+      return callback(error);
     },
+
     credentials: true,
   }),
 );
 
-//=========================================================================
-// Middleware Setup
-//=========================================================================
+// ==================== Middleware Setup ====================
+
 app.use(express.json());
-app.use(morgan("dev"));
+
+if (process.env.NODE_ENV !== "test") {
+  app.use(morgan("dev"));
+}
+
 app.use(cookies());
+
 app.use(xssSanitize);
 
-//=========================================================================
-// Disable API Cache
-//=========================================================================
+// ==================== Disable API Cache ====================
 
 app.use("/api/v1", (req, res, next) => {
   res.set({
@@ -74,57 +111,170 @@ app.use("/api/v1", (req, res, next) => {
     "Surrogate-Control": "no-store",
   });
 
-  next();
+  return next();
 });
 
-//=========================================================================
-// API Routes
-//=========================================================================
+// ==================== Health Check ====================
 
-// Health check route
 app.get("/api/health", (req, res) => {
-  return res.status(200).json({
-    success: true,
-    message: "Server is running",
+  const isDatabaseConnected =
+    mongoose.connection.readyState === 1;
+
+  const statusCode = isDatabaseConnected ? 200 : 503;
+
+  return res.status(statusCode).json({
+    success: isDatabaseConnected,
+
+    message: isDatabaseConnected
+      ? "Server is ready"
+      : "Database unavailable",
   });
 });
 
-app.use("/api/v1/auth", require("./routers/auth.routes"));
-app.use("/api/v1/users", require("./routers/user.routes"));
-app.use("/api/v1/products", require("./routers/product.route"));
-app.use("/api/v1/product-variants", require("./routers/productVariant.routes"));
-app.use("/api/v1/inventory", require("./routers/inventory.routes"));
-app.use("/api/v1/orders", require("./routers/order.routes"));
+// ==================== API Routes ====================
+
+app.use(
+  "/api/v1/auth",
+  require("./routers/auth.routes"),
+);
+
+app.use(
+  "/api/v1/users",
+  require("./routers/user.routes"),
+);
+
+app.use(
+  "/api/v1/products",
+  require("./routers/product.route"),
+);
+
+app.use(
+  "/api/v1/product-variants",
+  require("./routers/productVariant.routes"),
+);
+
+app.use(
+  "/api/v1/inventory",
+  require("./routers/inventory.routes"),
+);
+
+app.use(
+  "/api/v1/orders",
+  require("./routers/order.routes"),
+);
 
 
-//=========================================================================
-// Error Handling Middleware
-//=========================================================================
+app.use(
+  "/api/v1/dashboard",
+  require("./routers/dashboard.routes"),
+);
+
+// ==================== Error Handling ====================
+
 app.use(notFound);
+
 app.use(errorHandler);
 
-//=========================================================================
-// Server Initialization
-//=========================================================================
-const PORT = process.env.PORT || 3000;
-const MONGODB_URL = process.env.MONGODB_URL;
+// ==================== Start Server ====================
 
-// Initialize Socket.IO
-initializeSocket(server);
+const start = async () => {
+  // ==================== Validate Configuration ====================
 
-// Connect to MongoDB and start the server
-mongoose
-  .connect(MONGODB_URL)
-  .then(() => {
-    console.log("Connected to MongoDB Successfully");
+  validateConfiguration();
 
-console.log("Database Name:", mongoose.connection.name);
-console.log("MongoDB Host:", mongoose.connection.host);
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server is running on port ${PORT}`);
-});
-  })
-  .catch((err) => {
-    console.error("MongoDB Connection Error:", err.message);
-    process.exit(1);
+  // ==================== Connect To Database ====================
+
+  await mongoose.connect(process.env.MONGODB_URL);
+
+  // ==================== Initialize Database ====================
+
+  await initializeDatabase();
+
+  // ==================== Initialize Socket.IO ====================
+
+  initializeSocket(server);
+
+  // ==================== Listen For Requests ====================
+
+  const PORT = process.env.PORT || 3000;
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+
+    server.listen(PORT, "0.0.0.0", resolve);
   });
+
+  // ==================== Start Maintenance ====================
+
+  startMaintenance();
+
+  console.log("Server ready");
+
+  return server;
+};
+
+// ==================== Stop Server ====================
+
+const stop = async () => {
+  // ==================== Stop Maintenance ====================
+
+  await stopMaintenance();
+
+  // ==================== Close Server Connections ====================
+
+  if (server.listening) {
+    try {
+      getIO().disconnectSockets(true);
+    } catch {
+      // Socket.IO may not have been initialized.
+    }
+
+    await new Promise((resolve) => {
+      server.close(resolve);
+    });
+  }
+
+  // ==================== Disconnect Database ====================
+
+  await mongoose.disconnect();
+};
+
+// ==================== Run Application ====================
+
+if (require.main === module) {
+  // ==================== Handle Startup Failure ====================
+
+  start().catch(async (error) => {
+    console.error(
+      "Startup failed:",
+      error.message,
+    );
+
+    await stop();
+
+    process.exitCode = 1;
+  });
+
+  // ==================== Handle Shutdown Signals ====================
+
+  const shutdownSignals = [
+    "SIGINT",
+    "SIGTERM",
+  ];
+
+  for (const signal of shutdownSignals) {
+    process.once(signal, () => {
+      stop().then(() => {
+        process.exit(0);
+      });
+    });
+  }
+}
+
+// ==================== Exports ====================
+
+module.exports = {
+  app,
+  start,
+  stop,
+};

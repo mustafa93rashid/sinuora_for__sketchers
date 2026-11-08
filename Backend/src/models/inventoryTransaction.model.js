@@ -4,6 +4,11 @@ const mongoose = require("mongoose");
 
 const inventoryTransactionSchema = new mongoose.Schema(
   {
+    idempotencyKey: { type: String },
+    idempotencyHash: { type: String },
+    quarantinedBefore: { type: Number, min: 0, default: 0 },
+    quarantinedAfter: { type: Number, min: 0, default: 0 },
+
     variant: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "ProductVariant",
@@ -20,6 +25,7 @@ const inventoryTransactionSchema = new mongoose.Schema(
         "RELEASE_RESERVE",
         "SALE",
         "RETURN",
+        "QUARANTINE_RETURN",
         "ADJUSTMENT",
       ],
       index: true,
@@ -113,6 +119,10 @@ inventoryTransactionSchema.index({
 });
 
 // ==================== Model ====================
+
+inventoryTransactionSchema.index({ performedBy: 1, variant: 1, type: 1, idempotencyKey: 1 }, {
+  unique: true, partialFilterExpression: { idempotencyKey: { $type: "string" } },
+});
 
 const InventoryTransaction = mongoose.model(
   "InventoryTransaction",

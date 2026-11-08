@@ -21,8 +21,8 @@ const returnOrderValidation = [...orderIdValidation, payload(input.returns, true
 // ==================== Validate Order Filters ====================
 
 const getOrdersValidation = [
-  query("page").optional().isInt({ min: 1, max: 1000000 }),
-  query("limit").optional().isInt({ min: 1, max: 100 }),
+  query("page").optional().isInt({ min: 1, max: 1000000 }).toInt(),
+  query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
   query("createdBy").optional().isMongoId(),
   query("status").optional().isIn(["New", "Preparing", "Prepared", "Out For Delivery", "Delivered", "Returned", "Partially Returned", "Cancelled"]),
   validate,

@@ -1,0 +1,177 @@
+@import "tailwindcss";
+@theme {
+  --color-primary: #007478;
+  --color-background: #f7f9fa;
+  --color-foreground: #213335;
+  --color-muted-foreground: #788789;
+  --font-sans: "Segoe UI", Arial, sans-serif;
+  --breakpoint-tablet: 48rem;
+  --breakpoint-desktop: 75rem;
+}
+
+@layer base {
+  :root {
+    font-family: var(--font-sans);
+    color: #213335;
+    background: #f7f9fa;
+    font-synthesis: none;
+    font-size: 14px;
+    --primary: #007478;
+    --border: #e5ebeb;
+    --muted: #788789;
+    --radius: 12px;
+    --sidebar: 244px;
+  }
+  * {
+    @apply [box-sizing:border-box];
+  }
+  body {
+    @apply m-0;
+  }
+  button {
+    @apply [font:inherit];
+  }
+  input {
+    @apply [font:inherit];
+  }
+  select {
+    @apply [font:inherit];
+  }
+  textarea {
+    @apply [font:inherit];
+  }
+  button {
+    @apply [-webkit-tap-highlight-color:transparent];
+  }
+  a {
+    @apply [-webkit-tap-highlight-color:transparent];
+  }
+  input {
+    @apply [-webkit-tap-highlight-color:transparent];
+  }
+  select {
+    @apply [-webkit-tap-highlight-color:transparent];
+  }
+  textarea {
+    @apply [-webkit-tap-highlight-color:transparent];
+  }
+  button {
+    @apply touch-manipulation;
+  }
+  a {
+    @apply touch-manipulation;
+  }
+  button {
+    @apply cursor-pointer;
+  }
+  button:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+  a {
+    @apply text-inherit no-underline;
+  }
+  button:focus-visible {
+    @apply [outline:3px_solid_#72b8b9] [outline-offset:3px];
+  }
+  a:focus-visible {
+    @apply [outline:3px_solid_#72b8b9] [outline-offset:3px];
+  }
+  input:focus-visible {
+    @apply [outline:3px_solid_#72b8b9] [outline-offset:3px];
+  }
+  select:focus-visible {
+    @apply [outline:3px_solid_#72b8b9] [outline-offset:3px];
+  }
+  textarea:focus-visible {
+    @apply [outline:3px_solid_#72b8b9] [outline-offset:3px];
+  }
+  h1 {
+    @apply mt-0;
+  }
+  h2 {
+    @apply mt-0;
+  }
+  h3 {
+    @apply mt-0;
+  }
+  p {
+    @apply mt-0;
+  }
+  h1 {
+    @apply text-[31px] font-[650] tracking-[-1px] leading-[1.22] mb-[9px];
+  }
+  h2 {
+    @apply text-[18px] font-[650] tracking-[-.35px] mb-[10px];
+  }
+  h3 {
+    @apply text-[15px] font-[650] mb-[8px];
+  }
+  p {
+    @apply leading-[1.65] mb-[14px];
+  }
+  small {
+    @apply text-[11px] leading-[1.5];
+  }
+  strong {
+    @apply font-semibold;
+  }
+  hr {
+    @apply border-0 [border-top:1px_solid_var(--border)] [margin:22px_0];
+  }
+  svg {
+    @apply shrink-0 align-middle;
+  }
+  input {
+    @apply [border:1px_solid_#dce5e5] rounded-[8px] bg-white text-[#243b3d] min-h-[43px] [padding:10px_12px] max-w-full w-full;
+  }
+  select {
+    @apply [border:1px_solid_#dce5e5] rounded-[8px] bg-white text-[#243b3d] min-h-[43px] [padding:10px_12px] max-w-full w-full;
+  }
+  textarea {
+    @apply [border:1px_solid_#dce5e5] rounded-[8px] bg-white text-[#243b3d] min-h-[43px] [padding:10px_12px] max-w-full w-full;
+  }
+  select {
+    @apply w-auto max-w-full;
+  }
+  textarea {
+    @apply min-h-[100px] resize-y;
+  }
+  input::placeholder {
+    @apply text-[#98a2a3];
+  }
+  textarea::placeholder {
+    @apply text-[#98a2a3];
+  }
+  input[type="file"] {
+    @apply text-[12px];
+  }
+  input[type="file"]::file-selector-button {
+    @apply border-0 rounded-[4px] [padding:5px_9px] mr-[10px] bg-[#e8f4f3] text-primary;
+  }
+  @media (min-width: 768px) and (max-width: 1199px) {
+    :root {
+      --sidebar: 78px;
+    }
+  }
+  @media (max-width: 767px) {
+    :root {
+      font-size: 14px;
+      --sidebar: 0px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      @apply [animation-duration:.01ms]! [transition-duration:.01ms]! [scroll-behavior:auto]!;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *:before {
+      @apply [animation-duration:.01ms]! [transition-duration:.01ms]! [scroll-behavior:auto]!;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *:after {
+      @apply [animation-duration:.01ms]! [transition-duration:.01ms]! [scroll-behavior:auto]!;
+    }
+  }
+}

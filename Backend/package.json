@@ -2,12 +2,14 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/app.js",
   "scripts": {
     "start": "node ./src/app.js",
     "watch": "nodemon ./src/app.js",
     "seed:superadmin": "node src/superAdmin.seed.js",
-    "test:orders": "node --test tests/orders.unit.test.js tests/orders.integration.test.js"
+    "test:orders": "node scripts/run-integration.js",
+    "test": "node --test tests/orders.unit.test.js tests/security.unit.test.js",
+    "test:integration": "node scripts/run-integration.js"
   },
   "keywords": [],
   "author": "",

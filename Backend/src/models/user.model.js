@@ -6,6 +6,10 @@ const userSchema = new mongoose.Schema(
   {
     // ==================== Basic Information ====================
 
+    tokenVersion: { type: Number, default: 0, min: 0 },
+    deletedAt: { type: Date, default: null, index: true },
+    passwordChangeAttempts: { type: Number, default: 0, select: false },
+    emailChangeAttempts: { type: Number, default: 0, select: false },
     fullName: {
       type: String,
       required: true,
@@ -167,7 +171,7 @@ const userSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    versionKey: false,
+    optimisticConcurrency: true,
   },
 );
 

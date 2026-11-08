@@ -47,16 +47,21 @@ const productVariantSchema = new mongoose.Schema(
       maxlength: 100,
     },
 
+    identityLocked: { type: Boolean, default: false },
+    quarantinedQuantity: { type: Number, default: 0, min: 0, validate: Number.isSafeInteger },
+
     stockQuantity: {
       type: Number,
       default: 0,
       min: 0,
+      validate: Number.isSafeInteger,
     },
 
     reservedQuantity: {
       type: Number,
       default: 0,
       min: 0,
+      validate: Number.isSafeInteger,
     },
 
     isActive: {
@@ -67,6 +72,7 @@ const productVariantSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    optimisticConcurrency: true,
     toJSON: {
       virtuals: true,
     },

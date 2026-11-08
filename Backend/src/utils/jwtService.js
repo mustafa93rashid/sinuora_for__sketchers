@@ -1,43 +1,16 @@
-require("dotenv").config();
-
 const jwt = require("jsonwebtoken");
-
-// ==================== JWT Configuration ====================
-
-const ACCESS_TOKEN_SECRET = process.env.JWT_SECRET_KEY;
-
-const REFRESH_TOKEN_SECRET = process.env.REFRESH_JWT_SECRET_KEY;
-
-const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_ACCESS_EXPIRES_IN;
-
-const REFRESH_TOKEN_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN;
-
-// ==================== JWT Service ====================
-
-class JwtService {
-  // ==================== Generate Access Token ====================
-
-  generateAccessToken = (payload) => {
-    return jwt.sign(payload, ACCESS_TOKEN_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES_IN});
-  };
-
-  // ==================== Generate Refresh Token ====================
-
-  generateRefreshToken = (payload) => {
-    return jwt.sign(payload, REFRESH_TOKEN_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRES_IN});
-  };
-
-  // ==================== Verify Access Token ====================
-
-  verifyAccessToken = (token) => {
-    return jwt.verify(token, ACCESS_TOKEN_SECRET);
-  };
-
-  // ==================== Verify Refresh Token ====================
-
-  verifyRefreshToken = (token) => {
-    return jwt.verify(token, REFRESH_TOKEN_SECRET);
-  };
-}
-
-module.exports = new JwtService();
+const { randomUUID } = require("node:crypto");
+const sign = (payload, type, secret, expiresIn) => jwt.sign(
+  { ...payload, type }, secret, { algorithm: "HS256", expiresIn, jwtid: randomUUID() },
+);
+const verify = (token, type, secret) => {
+  const payload = jwt.verify(token, secret, { algorithms: ["HS256"] });
+  if (payload.type !== type || !Number.isSafeInteger(payload.ver) || payload.ver < 0 || !payload.jti || !Number.isSafeInteger(payload.exp)) throw new Error("Invalid session token");
+  return payload;
+};
+module.exports = {
+  generateAccessToken: payload => sign(payload, "access", process.env.JWT_SECRET_KEY, process.env.JWT_ACCESS_EXPIRES_IN || "15m"),
+  generateRefreshToken: payload => sign(payload, "refresh", process.env.REFRESH_JWT_SECRET_KEY, process.env.JWT_REFRESH_EXPIRES_IN || "7d"),
+  verifyAccessToken: token => verify(token, "access", process.env.JWT_SECRET_KEY),
+  verifyRefreshToken: token => verify(token, "refresh", process.env.REFRESH_JWT_SECRET_KEY),
+};

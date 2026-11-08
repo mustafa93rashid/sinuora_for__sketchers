@@ -18,7 +18,7 @@ router.get("/", [auth], getInventoryValidation, asyncHandler(inventoryController
 
 // ==================== Inventory Transactions ====================
 
-router.get("/transactions", [auth], getInventoryTransactionsValidation, asyncHandler(inventoryController.getInventoryTransactions));
+router.get("/transactions", [auth, role(["superadmin", "manager"])], getInventoryTransactionsValidation, asyncHandler(inventoryController.getInventoryTransactions));
 
 // ==================== Variant Inventory ====================
 
@@ -26,7 +26,7 @@ router.get("/variant/:variantId", [auth], variantInventoryValidation, asyncHandl
 
 // ==================== Variant Transactions ====================
 
-router.get("/variant/:variantId/transactions", [auth], getVariantTransactionsValidation, asyncHandler(inventoryController.getVariantTransactions));
+router.get("/variant/:variantId/transactions", [auth, role(["superadmin", "manager"])], getVariantTransactionsValidation, asyncHandler(inventoryController.getVariantTransactions));
 
 // ==================== Add Stock ====================
 

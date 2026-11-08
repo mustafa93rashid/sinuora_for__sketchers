@@ -1,3 +1,4 @@
+const { matchedData } = require("express-validator");
 const {
   body,
   param,
@@ -13,6 +14,7 @@ const INVENTORY_TRANSACTION_TYPES = [
   "RELEASE_RESERVE",
   "SALE",
   "RETURN",
+  "QUARANTINE_RETURN",
   "ADJUSTMENT",
 ];
 
@@ -36,6 +38,7 @@ const handleValidationErrors = (
     });
   }
 
+  req.validatedQuery = matchedData(req, { locations: ["query"] });
   next();
 };
 
@@ -178,6 +181,7 @@ const getInventoryValidation = [
     .optional()
     .isInt({
       min: 1,
+      max: 1000000,
     })
     .withMessage(
       "Page must be a positive integer",
@@ -208,7 +212,7 @@ const getInventoryValidation = [
     .withMessage(
       "Color must be a string",
     )
-    .trim(),
+    .trim().isLength({ max: 150 }),
 
   query("size")
     .optional()
@@ -246,6 +250,7 @@ const getInventoryTransactionsValidation = [
     .optional()
     .isInt({
       min: 1,
+      max: 1000000,
     })
     .withMessage(
       "Page must be a positive integer",
@@ -309,6 +314,7 @@ const getVariantTransactionsValidation = [
     .optional()
     .isInt({
       min: 1,
+      max: 1000000,
     })
     .withMessage(
       "Page must be a positive integer",

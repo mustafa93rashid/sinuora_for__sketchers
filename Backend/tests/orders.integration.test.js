@@ -28,8 +28,10 @@ test("Orders on an isolated MongoDB replica set", { skip: !process.env.MONGOD_BI
   const dataPath = mkdtempSync(join(tmpdir(), "sfs-orders-tests-"));
   const processHandle = spawn(process.env.MONGOD_BINARY, ["--dbpath", dataPath, "--port", String(port), "--bind_ip", "127.0.0.1", "--replSet", "sfsOrdersTest", "--logpath", join(dataPath, "mongo.log")], { windowsHide: true, stdio: "ignore" });
   let server;
+  let socketServer;
   t.after(async () => {
-    if (server) await new Promise((resolve) => server.close(resolve));
+    if (socketServer) await new Promise(resolve => socketServer.close(resolve));
+    if (server?.listening) await new Promise((resolve) => server.close(resolve));
     await mongoose.disconnect();
     if (processHandle.exitCode === null) {
       const exited = once(processHandle, "exit");
@@ -298,24 +300,22 @@ test("Orders on an isolated MongoDB replica set", { skip: !process.env.MONGOD_BI
     assert.equal((await Variant.findById(b._id)).stockQuantity, 2);
   });
 
+  process.env.NODE_ENV = "test";
+  process.env.REFRESH_JWT_SECRET_KEY = "isolated-refresh-secret-not-for-deployment";
   process.env.JWT_SECRET_KEY = "isolated-test-secret-not-for-deployment";
   process.env.DOTENV_CONFIG_QUIET = "true";
   const jwt = require("jsonwebtoken");
-  const express = require("express");
-  const app = express();
-  app.use(express.json());
-  app.use(require("../src/middlewares/xss"));
-  app.use("/api/v1/orders", require("../src/routers/order.routes"));
-  app.use(require("../src/middlewares/errorHandler"));
+  const { app } = require("../src/app");
   for (const user of [seller, admin, other, manager, followUp]) {
     await User.collection.insertOne({ ...user, fullName: user.role, email: `${user._id}@example.test`, isActive: true, isAccountActivated: true });
   }
   server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
+  socketServer = require("../src/config/socket").initializeSocket(server);
   const request = async (user, path, method = "GET", value, key = "http-key-001") => {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/orders${path}`, {
       method,
-      headers: { "Content-Type": "application/json", "Idempotency-Key": key, ...(user ? { Authorization: `Bearer ${jwt.sign({ id: String(user._id) }, process.env.JWT_SECRET_KEY)}` } : {}) },
+      headers: { "Content-Type": "application/json", "Idempotency-Key": key, ...(user ? { Authorization: `Bearer ${require("../src/utils/jwtService").generateAccessToken({ id: String(user._id), role: user.role, ver: 0 })}` } : {}) },
       ...(value ? { body: JSON.stringify(value) } : {}),
     });
     return { status: response.status, data: await response.json() };
@@ -362,5 +362,5 @@ test("Orders on an isolated MongoDB replica set", { skip: !process.env.MONGOD_BI
     assert.equal((await request(other, `/${id}/history`)).status, 404);
     assert.equal((await request(followUp, `/${id}/history`)).status, 200);
   });
+  await require("./review.regressions")(t, { server, admin, manager, seller, followUp, create, body, variant, dispatched, returning });
 });
-

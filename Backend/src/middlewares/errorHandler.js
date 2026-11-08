@@ -44,6 +44,10 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  if (err.name === "VersionError") {
+    return res.status(409).json({ success: false, message: "Resource changed; reload and retry" });
+  }
+
   // ==================== Mongoose Validation Error ====================
 
   if (err.name === "ValidationError") {
@@ -65,7 +69,7 @@ const errorHandler = (err, req, res, next) => {
   // ==================== Duplicate Key ====================
 
   if (err.code === 11000) {
-    const field = Object.keys(err.keyPattern)[0];
+    const field = Object.keys(err.keyPattern || {})[0] || "Resource";
 
     return res.status(409).json({
       success: false,

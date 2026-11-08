@@ -1,13 +1,14 @@
-const input = require("./orderInput.helper");
-const { integer: assertAmount } = input;
+const { lockProduct } = require("./catalog.helper");
+
 const crypto = require("node:crypto");
 const mongoose = require("mongoose");
+
+const input = require("./orderInput.helper");
 
 const Order = require("../models/order.model");
 const OrderReturn = require("../models/orderReturn.model");
 const OrderStatusHistory = require("../models/orderStatusHistory.model");
 const ProductVariant = require("../models/productVariant.model");
-const Product = require("../models/product.model");
 
 const inventoryHelper = require("./inventory.helper");
 const runTransaction = require("./transaction.helper");
@@ -15,44 +16,58 @@ const runTransaction = require("./transaction.helper");
 // ==================== Order Helper ====================
 
 class OrderHelper {
-
-  // ==================== Ensure Idempotency Indexes ====================
-
-  ensureIndexes = async () => {
-    if (!this.indexesReady) {
-      this.indexesReady = Promise.all([Order.createIndexes(), OrderReturn.createIndexes()]).catch((error) => {
-        this.indexesReady = null;
-        throw error;
-      });
-    }
-    await this.indexesReady;
-  };
-
   // ==================== Error Handler ====================
 
   fail = (message, statusCode = 400) => {
     throw Object.assign(new Error(message), { statusCode });
   };
 
+  // ==================== Ensure Indexes ====================
+
+  ensureIndexes = async () => {
+    if (!this.indexesReady) {
+      this.indexesReady = Promise.all([
+        Order.createIndexes(),
+        OrderReturn.createIndexes(),
+      ]).catch((error) => {
+        this.indexesReady = null;
+        throw error;
+      });
+    }
+
+    await this.indexesReady;
+  };
+
   // ==================== Roles ====================
 
-  isAdmin = (user) => ["superadmin", "manager"].includes(user.role);
+  isAdmin = (user) =>
+    ["superadmin", "manager"].includes(user?.role);
 
-  isFollowUp = (user) => ["superadmin", "manager", "saler", "follow-up"].includes(user.role);
+  isFollowUp = (user) =>
+    ["superadmin", "manager", "saler", "follow-up"].includes(user?.role);
+
+  canCreateOrder = (user) =>
+    ["superadmin", "manager", "saler"].includes(user?.role);
 
   // ==================== Order Scope ====================
 
   scope = (user) => {
     if (this.isAdmin(user)) return {};
 
-    if (user.role === "saler") {
+    if (user?.role === "saler") {
       return { createdBy: user._id };
     }
 
-    if (user.role === "follow-up") {
+    if (user?.role === "follow-up") {
       return {
         status: {
-          $in: ["Prepared", "Out For Delivery", "Delivered", "Returned", "Partially Returned"],
+          $in: [
+            "Prepared",
+            "Out For Delivery",
+            "Delivered",
+            "Returned",
+            "Partially Returned",
+          ],
         },
       };
     }
@@ -60,45 +75,151 @@ class OrderHelper {
     return { _id: { $in: [] } };
   };
 
-  // ==================== Serialize Order ====================
+  // ==================== Serialize Document ====================
 
-  serialize = (order) => {
-    if (!order) return null;
-    const value = typeof order.toObject === "function" ? order.toObject({ virtuals: true }) : { ...order };
+  serialize = (document, user = null) => {
+    if (!document) return null;
+
+    const value =
+      typeof document.toObject === "function"
+        ? document.toObject({ virtuals: true })
+        : JSON.parse(JSON.stringify(document));
+
     delete value.idempotencyKey;
     delete value.idempotencyHash;
+
+    // ==================== Protect Cost Information ====================
+
+    if (!this.isAdmin(user) && Array.isArray(value.items)) {
+      for (const item of value.items) {
+        delete item.unitCost;
+        delete item.totalCost;
+      }
+    }
+
     return value;
   };
 
   // ==================== Idempotency Hash ====================
 
-  createHash = (body) => {
-    return crypto.createHash("sha256").update(JSON.stringify(body)).digest("hex");
-  };
+  createHash = (body) =>
+    crypto
+      .createHash("sha256")
+      .update(JSON.stringify(body))
+      .digest("hex");
 
   // ==================== Generate Order Number ====================
 
-  generateOrderNumber = () => {
-    return `ORD-${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`;
+  generateOrderNumber = () =>
+    `ORD-${crypto.randomUUID()
+      .replace(/-/g, "")
+      .slice(0, 16)
+      .toUpperCase()}`;
+
+  // ==================== Validate Amount ====================
+
+  validateAmount = (amount, label = "Amount") => {
+    if (!Number.isSafeInteger(amount) || amount < 0) {
+      this.fail(`Invalid ${label}`, 400);
+    }
+
+    return amount;
   };
 
-  // ==================== Check Order Access ====================
+  multiplyAmount = (quantity, price, label = "Amount") =>
+    this.validateAmount(quantity * price, label);
 
-  getAccessibleOrder = async (user, id, session) => {
-    if (!mongoose.isValidObjectId(id)) this.fail("Invalid order ID");
+  sumAmount = (current, value, label = "Amount") =>
+    this.validateAmount(current + value, label);
+
+  // ==================== Product Cost ====================
+
+  getProductCost = (product) => {
+    const cost = product.costPrice;
+
+    if (!Number.isSafeInteger(cost) || cost < 0) {
+      this.fail("Product cost price is invalid", 409);
+    }
+
+    return cost;
+  };
+
+  // ==================== Validate Items ====================
+
+  validateItems = (items) => {
+    if (!Array.isArray(items) || !items.length || items.length > 100) {
+      this.fail("Order must contain between 1 and 100 items");
+    }
+
+    const variants = new Set();
+
+    for (const item of items) {
+      if (!mongoose.isValidObjectId(item.variant)) {
+        this.fail("Invalid product variant");
+      }
+
+      this.validateAmount(item.quantity, "item quantity");
+
+      if (item.quantity < 1) {
+        this.fail("Item quantity must be greater than zero");
+      }
+
+      this.validateAmount(item.unitPrice, "item price");
+
+      const variantId = String(item.variant);
+
+      if (variants.has(variantId)) {
+        this.fail("Duplicate variant in order");
+      }
+
+      variants.add(variantId);
+    }
+  };
+
+  // ==================== Validate Customer ====================
+
+  validateCustomer = (customer) => {
+    if (!customer?.name?.trim() || !customer?.address?.trim()) {
+      this.fail("Customer name and address are required");
+    }
+
+    if (
+      !customer.phone?.trim() &&
+      !customer.instagramUsername?.trim()
+    ) {
+      this.fail("Customer phone or Instagram username is required");
+    }
+  };
+
+  // ==================== Accessible Order ====================
+
+  getAccessibleOrder = async (user, id, session = null) => {
+    if (!mongoose.isValidObjectId(id)) {
+      this.fail("Invalid order ID");
+    }
 
     const order = await Order.findOne({
       $and: [{ _id: id }, this.scope(user)],
     }).session(session);
 
-    if (!order) this.fail("Order not found", 404);
+    if (!order) {
+      this.fail("Order not found", 404);
+    }
 
     return order;
   };
 
   // ==================== Save Status History ====================
 
-  saveHistory = async ({ order, fromStatus, toStatus, user, reason, note, session }) => {
+  saveHistory = async ({
+    order,
+    fromStatus,
+    toStatus,
+    user,
+    reason,
+    note,
+    session,
+  }) => {
     const history = new OrderStatusHistory({
       order: order._id,
       fromStatus,
@@ -111,83 +232,9 @@ class OrderHelper {
     return history.save({ session });
   };
 
-  // ==================== Change Order Status ====================
-
-  changeStatus = async ({ user, id, fromStatus, toStatus, body = {}, changes = {} }) => {
-    body = input.action(body);
-    return runTransaction(async (session) => {
-      const order = await this.getAccessibleOrder(user, id, session);
-
-      if (order.status !== fromStatus) {
-        this.fail(`Order must be ${fromStatus} to perform this action`, 409);
-      }
-
-      Object.assign(order, { status: toStatus, ...changes, updatedBy: user._id });
-      const updated = await order.save({ session });
-
-      await this.saveHistory({
-        order,
-        fromStatus,
-        toStatus,
-        user,
-        note: body.note,
-        reason: body.reason,
-        session,
-      });
-
-      return { order: this.serialize(updated) };
-    });
-  };
-
-  // ==================== Validate Items ====================
-
-  validateItems = (items) => {
-    if (!Array.isArray(items) || !items.length) {
-      this.fail("Order must contain at least one item");
-    }
-
-    const variants = new Set();
-
-    for (const item of items) {
-      if (!mongoose.isValidObjectId(item.variant)) {
-        this.fail("Invalid product variant");
-      }
-
-      if (!Number.isSafeInteger(item.quantity) || item.quantity < 1) {
-        this.fail("Invalid item quantity");
-      }
-
-      if (!Number.isSafeInteger(item.unitPrice) || item.unitPrice < 0) {
-        this.fail("Invalid item price");
-      }
-
-      const id = String(item.variant);
-
-      if (variants.has(id)) {
-        this.fail("Duplicate variant in order");
-      }
-
-      variants.add(id);
-    }
-  };
-
-  // ==================== Validate Customer ====================
-
-  validateCustomer = (customer) => {
-    if (!customer || !customer.name?.trim() || !customer.address?.trim()) {
-      this.fail("Customer name and address are required");
-    }
-
-    if (!customer.phone?.trim() && !customer.instagramUsername?.trim()) {
-      this.fail("Customer phone or Instagram username is required");
-    }
-  };
-
   // ==================== Get Existing Order ====================
 
   getExistingOrder = async (user, key, hash) => {
-    if (!key) return null;
-
     const order = await Order.findOne({
       createdBy: user._id,
       idempotencyKey: key,
@@ -196,122 +243,240 @@ class OrderHelper {
     if (!order) return null;
 
     if (order.idempotencyHash !== hash) {
-      this.fail("Idempotency key already used with different data", 409);
+      this.fail(
+        "Idempotency key already used with different data",
+        409
+      );
     }
 
-    return { order: this.serialize(order), replayed: true };
+    return {
+      order: this.serialize(order, user),
+      replayed: true,
+    };
+  };
+
+  // ==================== Prepare Order Item ====================
+
+  prepareOrderItem = async ({
+    item,
+    previous = null,
+    session,
+  }) => {
+    const variant = await ProductVariant.findOne({
+      _id: item.variant,
+      isActive: true,
+    }).session(session);
+
+    if (!variant) {
+      this.fail("Active product variant not found", 404);
+    }
+
+    const product = await lockProduct(variant.product, session);
+
+    if (!product) {
+      this.fail("Active product not found", 404);
+    }
+
+    // ==================== Historical Cost Snapshot ====================
+
+    let unitCost = null;
+
+    if (previous) {
+      // Preserve the original historical cost.
+      // Do not replace missing old cost with current product cost.
+
+      if (previous.unitCost != null) {
+        unitCost = this.validateAmount(
+          previous.unitCost,
+          "historical unit cost"
+        );
+      }
+    } else {
+      unitCost = this.getProductCost(product);
+    }
+
+    // ==================== Calculate Selling Amount ====================
+
+    const totalPrice = this.multiplyAmount(
+      item.quantity,
+      item.unitPrice,
+      "item total price"
+    );
+
+    // ==================== Calculate Historical Cost ====================
+
+    const totalCost =
+      unitCost === null
+        ? null
+        : this.multiplyAmount(
+            item.quantity,
+            unitCost,
+            "item total cost"
+          );
+
+    // ==================== Product Snapshot ====================
+
+    const productSnapshot = previous?.productSnapshot
+      ? {
+          name: previous.productSnapshot.name,
+          modelCode: previous.productSnapshot.modelCode,
+          color: previous.productSnapshot.color,
+          size: previous.productSnapshot.size,
+          sku: previous.productSnapshot.sku,
+        }
+      : {
+          name: product.name,
+          modelCode: product.modelCode,
+          color: variant.color,
+          size: variant.size,
+          sku: variant.sku,
+        };
+
+    return {
+      _id: previous?._id ?? new mongoose.Types.ObjectId(),
+      product: product._id,
+      variant: variant._id,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice,
+      unitCost,
+      totalCost,
+      productSnapshot,
+    };
+  };
+
+  // ==================== Calculate Order Totals ====================
+
+  calculateTotals = (order) => {
+    order.subtotal = order.items.reduce(
+      (sum, item) =>
+        this.sumAmount(sum, item.totalPrice, "subtotal"),
+      0
+    );
+
+    this.validateAmount(order.deliveryFee, "delivery fee");
+    this.validateAmount(order.discount, "discount");
+
+    const beforeDiscount = this.sumAmount(
+      order.subtotal,
+      order.deliveryFee,
+      "order amount"
+    );
+
+    if (order.discount > beforeDiscount) {
+      this.fail("Discount exceeds order amount");
+    }
+
+    order.totalAmount = beforeDiscount - order.discount;
+  };
+
+  // ==================== Calculate Follow-up Amounts ====================
+
+  calculateFollowUpAmounts = (order) => {
+    order.deliveredAmount = 0;
+    order.returnedAmount = 0;
+
+    for (const item of order.items) {
+      order.deliveredAmount = this.sumAmount(
+        order.deliveredAmount,
+        this.multiplyAmount(
+          item.deliveredQuantity,
+          item.unitPrice,
+          "delivered amount"
+        ),
+        "delivered amount"
+      );
+
+      order.returnedAmount = this.sumAmount(
+        order.returnedAmount,
+        this.multiplyAmount(
+          item.returnedQuantity,
+          item.unitPrice,
+          "returned amount"
+        ),
+        "returned amount"
+      );
+    }
   };
 
   // ==================== Create Order ====================
 
   createOrder = async ({ user, body, key }) => {
-    if (!["superadmin", "manager", "saler"].includes(user.role)) {
+    if (!this.canCreateOrder(user)) {
       this.fail("Permission denied", 403);
     }
 
     body = input.order(body);
     key = input.key(key);
+
     await this.ensureIndexes();
+
     this.validateCustomer(body.customer);
     this.validateItems(body.items);
 
     const hash = this.createHash(body);
+
     const existing = await this.getExistingOrder(user, key, hash);
 
     if (existing) return existing;
 
     try {
       return await runTransaction(async (session) => {
-        const replay = await Order.findOne({ createdBy: user._id, idempotencyKey: key }).session(session);
+        // ==================== Check Existing Order ====================
+
+        const replay = await Order.findOne({
+          createdBy: user._id,
+          idempotencyKey: key,
+        }).session(session);
+
         if (replay) {
-          if (replay.idempotencyHash !== hash) this.fail("Idempotency key already used with different data", 409);
-          return { order: this.serialize(replay), replayed: true };
-        }
-        const orderItems = [];
-        let subtotal = 0;
-
-        // ==================== Prepare Order Items ====================
-
-        for (const item of body.items) {
-          const variant = await ProductVariant.findOne({
-            _id: item.variant,
-            isActive: true,
-          }).session(session);
-
-          if (!variant) this.fail("Active product variant not found", 404);
-
-          const product = await Product.findOne({
-            _id: variant.product,
-            isActive: true,
-          }).session(session);
-
-          if (!product) this.fail("Active product not found", 404);
-
-          const totalPrice = item.quantity * item.unitPrice;
-
-          if (!Number.isSafeInteger(totalPrice)) {
-            this.fail("Invalid item total price");
+          if (replay.idempotencyHash !== hash) {
+            this.fail(
+              "Idempotency key already used with different data",
+              409
+            );
           }
 
-          subtotal += totalPrice;
-          assertAmount(subtotal);
-
-          orderItems.push({
-            product: product._id,
-            variant: variant._id,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            totalPrice,
-            productSnapshot: {
-              name: product.name,
-              modelCode: product.modelCode,
-              color: variant.color,
-              size: variant.size,
-              sku: variant.sku,
-            },
-          });
+          return {
+            order: this.serialize(replay, user),
+            replayed: true,
+          };
         }
 
-        // ==================== Calculate Amount ====================
+        // ==================== Prepare Items ====================
 
-        const deliveryFee = body.deliveryFee ?? 0;
-        const discount = body.discount ?? 0;
+        const orderItems = [];
 
-        if (!Number.isSafeInteger(deliveryFee) || deliveryFee < 0) {
-          this.fail("Invalid delivery fee");
+        for (const item of body.items) {
+          orderItems.push(
+            await this.prepareOrderItem({
+              item,
+              session,
+            })
+          );
         }
 
-        if (!Number.isSafeInteger(discount) || discount < 0 || discount > subtotal + deliveryFee) {
-          this.fail("Invalid discount");
-        }
-
-        assertAmount(subtotal + deliveryFee);
-        const totalAmount = subtotal + deliveryFee - discount;
-
-        if (!Number.isSafeInteger(totalAmount)) {
-          this.fail("Invalid order amount");
-        }
-
-        // ==================== Create Order ====================
+        // ==================== Create Order Document ====================
 
         const order = new Order({
           orderNumber: this.generateOrderNumber(),
           customer: body.customer,
           items: orderItems,
           status: "New",
-          subtotal,
-          deliveryFee,
-          discount,
-          totalAmount,
+          deliveryFee: body.deliveryFee ?? 0,
+          discount: body.discount ?? 0,
           notes: body.notes,
           createdBy: user._id,
           updatedBy: user._id,
-          ...(key && { idempotencyKey: key, idempotencyHash: hash }),
+          idempotencyKey: key,
+          idempotencyHash: hash,
         });
+
+        this.calculateTotals(order);
 
         await order.save({ session });
 
-        // ==================== Reserve Stock ====================
+        // ==================== Reserve Inventory ====================
 
         for (const item of order.items) {
           await inventoryHelper.reserveStock({
@@ -325,7 +490,7 @@ class OrderHelper {
           });
         }
 
-        // ==================== Save History ====================
+        // ==================== Save Status History ====================
 
         await this.saveHistory({
           order,
@@ -335,11 +500,19 @@ class OrderHelper {
           session,
         });
 
-        return { order: this.serialize(order), replayed: false };
+        return {
+          order: this.serialize(order, user),
+          replayed: false,
+        };
       });
     } catch (error) {
-      if (error.code === 11000 && key) {
-        const replay = await this.getExistingOrder(user, key, hash);
+      if (error.code === 11000) {
+        const replay = await this.getExistingOrder(
+          user,
+          key,
+          hash
+        );
+
         if (replay) return replay;
       }
 
@@ -350,25 +523,38 @@ class OrderHelper {
   // ==================== Update Order ====================
 
   updateOrder = async ({ user, id, body }) => {
-    if (!["superadmin", "manager", "saler"].includes(user.role)) this.fail("Permission denied", 403);
+    if (!this.canCreateOrder(user)) {
+      this.fail("Permission denied", 403);
+    }
+
     body = input.order(body, true);
+
     return runTransaction(async (session) => {
-      const order = await this.getAccessibleOrder(user, id, session);
+      const order = await this.getAccessibleOrder(
+        user,
+        id,
+        session
+      );
 
       if (!["New", "Preparing"].includes(order.status)) {
         this.fail("Order cannot be updated at this stage", 409);
       }
 
-      if (!this.isAdmin(user) && String(order.createdBy) !== String(user._id)) {
+      if (
+        !this.isAdmin(user) &&
+        String(order.createdBy) !== String(user._id)
+      ) {
         this.fail("Permission denied", 403);
       }
 
-      // ==================== Update Customer And Notes ====================
+      // ==================== Update Customer ====================
 
       if (body.customer !== undefined) {
         this.validateCustomer(body.customer);
         order.customer = body.customer;
       }
+
+      // ==================== Update Notes ====================
 
       if (body.notes !== undefined) {
         order.notes = body.notes;
@@ -379,81 +565,63 @@ class OrderHelper {
       if (body.items !== undefined) {
         this.validateItems(body.items);
 
-        const oldItems = order.items;
+        const oldItems = [...order.items];
         const newItems = [];
-        let subtotal = 0;
 
-        for (const input of body.items) {
-          const variant = await ProductVariant.findOne({
-            _id: input.variant,
-            isActive: true,
-          }).session(session);
+        for (const item of body.items) {
+          const previous = oldItems.find(
+            (old) =>
+              String(old.variant) === String(item.variant)
+          );
 
-          if (!variant) this.fail("Active product variant not found", 404);
+          const prepared = await this.prepareOrderItem({
+            item,
+            previous,
+            session,
+          });
 
-          const product = await Product.findOne({
-            _id: variant.product,
-            isActive: true,
-          }).session(session);
+          const difference =
+            item.quantity - (previous?.quantity ?? 0);
 
-          if (!product) this.fail("Active product not found", 404);
-
-          const previous = oldItems.find((item) => String(item.variant) === String(variant._id));
-          const itemId = previous?._id ?? new mongoose.Types.ObjectId();
-          const oldQuantity = previous?.quantity ?? 0;
-          const difference = input.quantity - oldQuantity;
+          // ==================== Reserve Increased Quantity ====================
 
           if (difference > 0) {
             await inventoryHelper.reserveStock({
-              variantId: variant._id,
+              variantId: item.variant,
               quantity: difference,
               order: order._id,
-              orderItem: itemId,
+              orderItem: prepared._id,
               performedBy: user._id,
               reason: "Order quantity increased",
               session,
             });
           }
 
+          // ==================== Release Decreased Quantity ====================
+
           if (difference < 0) {
             await inventoryHelper.releaseReservedStock({
-              variantId: variant._id,
+              variantId: item.variant,
               quantity: Math.abs(difference),
               order: order._id,
-              orderItem: previous._id,
+              orderItem: prepared._id,
               performedBy: user._id,
               reason: "Order quantity decreased",
               session,
             });
           }
 
-          const totalPrice = input.quantity * input.unitPrice;
-          if (!Number.isSafeInteger(totalPrice)) this.fail("Invalid item total price");
-
-          subtotal += totalPrice;
-          assertAmount(subtotal);
-
-          newItems.push({
-            _id: itemId,
-            product: product._id,
-            variant: variant._id,
-            quantity: input.quantity,
-            unitPrice: input.unitPrice,
-            totalPrice,
-            productSnapshot: {
-              name: product.name,
-              modelCode: product.modelCode,
-              color: variant.color,
-              size: variant.size,
-              sku: variant.sku,
-            },
-          });
+          newItems.push(prepared);
         }
 
         // ==================== Release Removed Items ====================
 
         for (const previous of oldItems) {
-          const exists = newItems.some((item) => String(item.variant) === String(previous.variant));
+          const exists = newItems.some(
+            (item) =>
+              String(item.variant) ===
+              String(previous.variant)
+          );
 
           if (!exists) {
             await inventoryHelper.releaseReservedStock({
@@ -469,55 +637,134 @@ class OrderHelper {
         }
 
         order.items = newItems;
-        order.subtotal = subtotal;
       }
 
-      // ==================== Update Amount ====================
+      // ==================== Update Financial Amounts ====================
 
-      if (body.deliveryFee !== undefined) order.deliveryFee = body.deliveryFee;
-      if (body.discount !== undefined) order.discount = body.discount;
-
-      if (!Number.isSafeInteger(order.deliveryFee) || order.deliveryFee < 0) {
-        this.fail("Invalid delivery fee");
+      if (body.deliveryFee !== undefined) {
+        order.deliveryFee = body.deliveryFee;
       }
 
-      if (!Number.isSafeInteger(order.discount) || order.discount < 0 || order.discount > order.subtotal + order.deliveryFee) {
-        this.fail("Invalid discount");
+      if (body.discount !== undefined) {
+        order.discount = body.discount;
       }
 
-      assertAmount(order.subtotal + order.deliveryFee);
-      order.totalAmount = order.subtotal + order.deliveryFee - order.discount;
+      this.calculateTotals(order);
+
       order.updatedBy = user._id;
-      await order.save({ session });
-      await this.saveHistory({ order, fromStatus: order.status, toStatus: order.status, user, reason: "Order updated", session });
 
-      return { order: this.serialize(order) };
+      await order.save({ session });
+
+      // ==================== Save Update History ====================
+
+      await this.saveHistory({
+        order,
+        fromStatus: order.status,
+        toStatus: order.status,
+        user,
+        reason: "Order updated",
+        session,
+      });
+
+      return {
+        order: this.serialize(order, user),
+      };
+    });
+  };
+
+  // ==================== Change Order Status ====================
+
+  changeStatus = async ({
+    user,
+    id,
+    fromStatus,
+    toStatus,
+    body = {},
+    changes = {},
+  }) => {
+    body = input.action(body);
+
+    return runTransaction(async (session) => {
+      const order = await this.getAccessibleOrder(
+        user,
+        id,
+        session
+      );
+
+      if (order.status !== fromStatus) {
+        this.fail(`Order must be ${fromStatus}`, 409);
+      }
+
+      Object.assign(order, {
+        status: toStatus,
+        ...changes,
+        updatedBy: user._id,
+      });
+
+      await order.save({ session });
+
+      await this.saveHistory({
+        order,
+        fromStatus,
+        toStatus,
+        user,
+        reason: body.reason,
+        note: body.note,
+        session,
+      });
+
+      return {
+        order: this.serialize(order, user),
+      };
     });
   };
 
   // ==================== Cancel Order ====================
 
   cancelOrder = async ({ user, id, body = {} }) => {
-    if (!["superadmin", "manager", "saler"].includes(user.role)) this.fail("Permission denied", 403);
+    if (!this.canCreateOrder(user)) {
+      this.fail("Permission denied", 403);
+    }
+
     body = input.action(body, true);
+
     return runTransaction(async (session) => {
-      const order = await this.getAccessibleOrder(user, id, session);
+      const order = await this.getAccessibleOrder(
+        user,
+        id,
+        session
+      );
+
+      // ==================== Already Cancelled ====================
 
       if (order.status === "Cancelled") {
-        return { order: this.serialize(order), replayed: true };
+        return {
+          order: this.serialize(order, user),
+          replayed: true,
+        };
       }
 
-      if (!["New", "Preparing", "Prepared"].includes(order.status)) {
-        this.fail("Order cannot be cancelled after dispatch", 409);
+      if (
+        !["New", "Preparing", "Prepared"].includes(
+          order.status
+        )
+      ) {
+        this.fail(
+          "Order cannot be cancelled after dispatch",
+          409
+        );
       }
 
-      if (!this.isAdmin(user) && String(order.createdBy) !== String(user._id)) {
+      if (
+        !this.isAdmin(user) &&
+        String(order.createdBy) !== String(user._id)
+      ) {
         this.fail("Permission denied", 403);
       }
 
       const fromStatus = order.status;
 
-      // ==================== Release Reserved Stock ====================
+      // ==================== Release Reserved Inventory ====================
 
       for (const item of order.items) {
         await inventoryHelper.releaseReservedStock({
@@ -543,6 +790,8 @@ class OrderHelper {
 
       await order.save({ session });
 
+      // ==================== Save Cancellation History ====================
+
       await this.saveHistory({
         order,
         fromStatus,
@@ -553,14 +802,19 @@ class OrderHelper {
         session,
       });
 
-      return { order: this.serialize(order), replayed: false };
+      return {
+        order: this.serialize(order, user),
+        replayed: false,
+      };
     });
   };
 
   // ==================== Start Preparing ====================
 
   startPreparing = async ({ user, id, body = {} }) => {
-    if (!this.isAdmin(user)) this.fail("Permission denied", 403);
+    if (!this.isAdmin(user)) {
+      this.fail("Permission denied", 403);
+    }
 
     return this.changeStatus({
       user,
@@ -574,7 +828,9 @@ class OrderHelper {
   // ==================== Mark Prepared ====================
 
   markPrepared = async ({ user, id, body = {} }) => {
-    if (!this.isAdmin(user)) this.fail("Permission denied", 403);
+    if (!this.isAdmin(user)) {
+      this.fail("Permission denied", 403);
+    }
 
     return this.changeStatus({
       user,
@@ -592,14 +848,24 @@ class OrderHelper {
   // ==================== Dispatch Order ====================
 
   dispatchOrder = async ({ user, id, body = {} }) => {
+    if (!this.isAdmin(user)) {
+      this.fail("Permission denied", 403);
+    }
+
     body = input.action(body);
-    if (!this.isAdmin(user)) this.fail("Permission denied", 403);
 
     return runTransaction(async (session) => {
-      const order = await this.getAccessibleOrder(user, id, session);
+      const order = await this.getAccessibleOrder(
+        user,
+        id,
+        session
+      );
 
       if (order.status !== "Prepared") {
-        this.fail("Only prepared orders can be dispatched", 409);
+        this.fail(
+          "Only prepared orders can be dispatched",
+          409
+        );
       }
 
       // ==================== Confirm Stock Out ====================
@@ -627,6 +893,8 @@ class OrderHelper {
 
       await order.save({ session });
 
+      // ==================== Save Dispatch History ====================
+
       await this.saveHistory({
         order,
         fromStatus: "Prepared",
@@ -636,153 +904,340 @@ class OrderHelper {
         session,
       });
 
-      return { order: this.serialize(order) };
+      return {
+        order: this.serialize(order, user),
+      };
     });
   };
 
   // ==================== Deliver Order ====================
 
   deliverOrder = async ({ user, id, body = {} }) => {
-    if (!this.isFollowUp(user)) this.fail("Permission denied", 403);
+    if (!this.isFollowUp(user)) {
+      this.fail("Permission denied", 403);
+    }
+
     body = input.action(body);
+
     return runTransaction(async (session) => {
-      const order = await this.getAccessibleOrder(user, id, session);
-      if (!["Out For Delivery", "Partially Returned", "Delivered"].includes(order.status)) this.fail("Order must be dispatched with remaining items", 409);
-      const pending = order.items.some((item) => item.dispatchedQuantity > item.returnedQuantity + item.deliveredQuantity);
-      if (!pending) return { order: this.serialize(order), replayed: true };
+      const order = await this.getAccessibleOrder(
+        user,
+        id,
+        session
+      );
+
+      if (
+        ![
+          "Out For Delivery",
+          "Partially Returned",
+          "Delivered",
+        ].includes(order.status)
+      ) {
+        this.fail(
+          "Order must be dispatched before delivery",
+          409
+        );
+      }
+
+      // ==================== Check Pending Quantities ====================
+
+      const pending = order.items.some(
+        (item) =>
+          item.dispatchedQuantity >
+          item.returnedQuantity +
+            item.deliveredQuantity
+      );
+
+      if (!pending) {
+        return {
+          order: this.serialize(order, user),
+          replayed: true,
+        };
+      }
+
       const fromStatus = order.status;
-      for (const item of order.items) item.deliveredQuantity = item.dispatchedQuantity - item.returnedQuantity;
-      order.deliveredAmount = order.items.reduce((sum, item) => sum + item.deliveredQuantity * item.unitPrice, 0);
-      order.status = order.items.some((item) => item.returnedQuantity > 0) ? "Partially Returned" : "Delivered";
+
+      // ==================== Confirm Remaining Delivery ====================
+
+      for (const item of order.items) {
+        item.deliveredQuantity =
+          item.dispatchedQuantity -
+          item.returnedQuantity;
+      }
+
+      this.calculateFollowUpAmounts(order);
+
+      // ==================== Determine Final Status ====================
+
+      const hasReturns = order.items.some(
+        (item) => item.returnedQuantity > 0
+      );
+
+      order.status = hasReturns
+        ? "Partially Returned"
+        : "Delivered";
+
       order.completedBy = user._id;
       order.completedAt = new Date();
       order.followUpCompleted = true;
       order.updatedBy = user._id;
+
       await order.save({ session });
-      await this.saveHistory({ order, fromStatus, toStatus: order.status, user, note: body.note, session });
-      return { order: this.serialize(order), replayed: false };
+
+      // ==================== Save Delivery History ====================
+
+      await this.saveHistory({
+        order,
+        fromStatus,
+        toStatus: order.status,
+        user,
+        note: body.note,
+        session,
+      });
+
+      return {
+        order: this.serialize(order, user),
+        replayed: false,
+      };
     });
   };
 
   // ==================== Return Order Items ====================
 
   returnOrderItems = async ({ user, id, body, key }) => {
-    if (!this.isFollowUp(user)) this.fail("Permission denied", 403);
+    if (!this.isFollowUp(user)) {
+      this.fail("Permission denied", 403);
+    }
 
     body = input.returns(body);
     key = input.key(key);
-    input.id(id);
+    id = input.id(id);
+
     await this.ensureIndexes();
-    if (!Array.isArray(body.items) || !body.items.length) {
-      this.fail("Return items are required");
-    }
-
-    const reasons = ["NO_ANSWER", "REFUSED", "WRONG_ADDRESS", "CHANGED_MIND", "SIZE_ISSUE", "DAMAGED", "OTHER"];
-
-    if (!reasons.includes(body.reason)) {
-      this.fail("Invalid return reason");
-    }
 
     const hash = this.createHash(body);
 
-    // ==================== Check Existing Return ====================
+    // ==================== Get Existing Return ====================
 
-    if (key) {
-      const existing = await OrderReturn.findOne({ order: id, idempotencyKey: key });
+    const getExistingReturn = async () => {
+      const existing = await OrderReturn.findOne({
+        order: id,
+        idempotencyKey: key,
+      });
 
-      if (existing) {
-        if (existing.idempotencyHash !== hash) {
-          this.fail("Idempotency key already used with different data", 409);
-        }
+      if (!existing) return null;
 
-        const order = await this.getAccessibleOrder(user, id, null);
-
-        return {
-          order: this.serialize(order),
-          orderReturn: this.serialize(existing),
-          replayed: true,
-        };
+      if (existing.idempotencyHash !== hash) {
+        this.fail(
+          "Idempotency key already used with different data",
+          409
+        );
       }
-    }
+
+      const order = await this.getAccessibleOrder(user, id);
+
+      return {
+        order: this.serialize(order, user),
+        orderReturn: this.serialize(existing, user),
+        replayed: true,
+      };
+    };
+
+    // ==================== Check Idempotency ====================
+
+    const replay = await getExistingReturn();
+
+    if (replay) return replay;
 
     try {
       return await runTransaction(async (session) => {
-        const order = await this.getAccessibleOrder(user, id, session);
+        const order = await this.getAccessibleOrder(
+          user,
+          id,
+          session
+        );
 
-        const existing = await OrderReturn.findOne({ order: id, idempotencyKey: key }).session(session);
+        // ==================== Check Existing Return In Transaction ====================
+
+        const existing = await OrderReturn.findOne({
+          order: id,
+          idempotencyKey: key,
+        }).session(session);
+
         if (existing) {
-          if (existing.idempotencyHash !== hash) this.fail("Idempotency key already used with different data", 409);
-          return { order: this.serialize(order), orderReturn: this.serialize(existing), replayed: true };
+          if (existing.idempotencyHash !== hash) {
+            this.fail(
+              "Idempotency key already used with different data",
+              409
+            );
+          }
+
+          return {
+            order: this.serialize(order, user),
+            orderReturn: this.serialize(existing, user),
+            replayed: true,
+          };
         }
-        if (!["Out For Delivery", "Delivered", "Partially Returned"].includes(order.status)) {
-          this.fail("Order must be dispatched before returning items", 409);
+
+        // ==================== Validate Order Status ====================
+
+        if (
+          ![
+            "Out For Delivery",
+            "Delivered",
+            "Partially Returned",
+          ].includes(order.status)
+        ) {
+          this.fail(
+            "Order must be dispatched before returning",
+            409
+          );
         }
+
+        // ==================== Validate And Classify Return Items ====================
 
         const returnedItems = [];
-        const usedItems = new Set();
         let returnedAmount = 0;
 
-        // ==================== Validate Return Items ====================
+        for (const requested of body.items) {
+          const item = order.items.id(
+            requested.orderItem
+          );
 
-        for (const input of body.items) {
-          const itemId = String(input.orderItem);
-
-          if (usedItems.has(itemId)) {
-            this.fail("Duplicate order item in return");
+          if (!item) {
+            this.fail("Order item not found", 404);
           }
 
-          usedItems.add(itemId);
+          // ==================== Calculate Returnable Quantity ====================
 
-          const item = order.items.id(itemId);
+          const availableToReturn =
+            item.dispatchedQuantity -
+            item.returnedQuantity;
 
-          if (!item) this.fail("Order item not found", 404);
-
-          if (!Number.isSafeInteger(input.quantity) || input.quantity < 1) {
-            this.fail("Invalid return quantity");
+          if (
+            !Number.isSafeInteger(requested.quantity) ||
+            requested.quantity < 1 ||
+            requested.quantity > availableToReturn
+          ) {
+            this.fail(
+              "Return quantity exceeds remaining dispatched quantity",
+              409
+            );
           }
 
-          if (input.quantity > item.dispatchedQuantity - item.returnedQuantity) {
-            this.fail("Return quantity exceeds remaining dispatched quantity", 409);
+          // ==================== Calculate Pending Quantity ====================
+
+          const pendingQuantity =
+            item.dispatchedQuantity -
+            item.returnedQuantity -
+            item.deliveredQuantity;
+
+          if (pendingQuantity < 0) {
+            this.fail(
+              "Inconsistent order item quantities",
+              409
+            );
           }
 
-          const totalPrice = input.quantity * item.unitPrice;
+          // ==================== Classify Return ====================
 
-          returnedAmount += totalPrice;
+          const preDeliveryQuantity = Math.min(
+            requested.quantity,
+            pendingQuantity
+          );
+
+          const postDeliveryQuantity =
+            requested.quantity -
+            preDeliveryQuantity;
+
+          if (
+            postDeliveryQuantity >
+            item.deliveredQuantity
+          ) {
+            this.fail(
+              "Invalid post-delivery return quantity",
+              409
+            );
+          }
+
+          // ==================== Calculate Return Amount ====================
+
+          const totalPrice = this.multiplyAmount(
+            requested.quantity,
+            item.unitPrice,
+            "return item amount"
+          );
+
+          returnedAmount = this.sumAmount(
+            returnedAmount,
+            totalPrice,
+            "returned amount"
+          );
 
           returnedItems.push({
             orderItem: item._id,
             variant: item.variant,
-            quantity: input.quantity,
+            quantity: requested.quantity,
             unitPrice: item.unitPrice,
             totalPrice,
+            preDeliveryQuantity,
+            postDeliveryQuantity,
+            restockedQuantity: body.reason === "DAMAGED" ? 0 : requested.quantity,
+            quarantinedQuantity: body.reason === "DAMAGED" ? requested.quantity : 0,
           });
         }
 
-        // ==================== Create Return ====================
+        // ==================== Calculate Return Classification ====================
 
-        const totalQuantity = order.items.reduce((sum, item) => sum + BigInt(item.dispatchedQuantity), 0n);
-        const returnQuantity = returnedItems.reduce((sum, item) => sum + BigInt(item.quantity), 0n);
-        const cumulativeReturned = order.items.reduce((sum, item) => sum + BigInt(item.returnedQuantity), 0n) + returnQuantity;
+        const totalDispatched = order.items.reduce(
+          (sum, item) =>
+            sum + BigInt(item.dispatchedQuantity),
+          0n
+        );
+
+        const previousReturns = order.items.reduce(
+          (sum, item) =>
+            sum + BigInt(item.returnedQuantity),
+          0n
+        );
+
+        const newReturns = returnedItems.reduce(
+          (sum, item) =>
+            sum + BigInt(item.quantity),
+          0n
+        );
+
+        const cumulativeReturns =
+          previousReturns + newReturns;
+
+        // ==================== Create Return Document ====================
 
         const orderReturn = new OrderReturn({
           order: order._id,
           items: returnedItems,
-          type: cumulativeReturned === totalQuantity ? "FULL" : "PARTIAL",
+          type:
+            cumulativeReturns === totalDispatched
+              ? "FULL"
+              : "PARTIAL",
           reason: body.reason,
           note: body.note,
           returnedAmount,
           processedBy: user._id,
-          ...(key && { idempotencyKey: key, idempotencyHash: hash }),
+          idempotencyKey: key,
+          idempotencyHash: hash,
         });
 
         await orderReturn.save({ session });
 
-        // ==================== Restore Returned Stock ====================
+        // ==================== Restore Inventory ====================
 
         for (const returned of returnedItems) {
-          const item = order.items.id(returned.orderItem);
+          const item = order.items.id(
+            returned.orderItem
+          );
 
-          await inventoryHelper.returnStock({
+          const receiveReturn = body.reason === "DAMAGED" ? inventoryHelper.quarantineStock : inventoryHelper.returnStock;
+          await receiveReturn({
             variantId: item.variant,
             quantity: returned.quantity,
             order: order._id,
@@ -793,35 +1248,65 @@ class OrderHelper {
             session,
           });
 
+          // ==================== Update Returned Quantity ====================
+
           item.returnedQuantity += returned.quantity;
-          item.deliveredQuantity = Math.min(item.deliveredQuantity, item.dispatchedQuantity - item.returnedQuantity);
+
+          // ==================== Update Net Delivered Quantity ====================
+
+          item.deliveredQuantity -=
+            returned.postDeliveryQuantity;
+
+          // ==================== Validate Updated Quantities ====================
+
+          if (
+            item.deliveredQuantity < 0 ||
+            item.deliveredQuantity +
+              item.returnedQuantity >
+              item.dispatchedQuantity
+          ) {
+            this.fail(
+              "Inconsistent return quantities",
+              409
+            );
+          }
         }
 
-        // ==================== Update Order Totals ====================
+        // ==================== Recalculate Financial Amounts ====================
+
+        this.calculateFollowUpAmounts(order);
 
         const fromStatus = order.status;
 
-        order.returnedAmount = order.items.reduce(
-          (sum, item) => sum + item.returnedQuantity * item.unitPrice,
-          0,
+        // ==================== Update Order Status ====================
+
+        order.status =
+          cumulativeReturns === totalDispatched
+            ? "Returned"
+            : "Partially Returned";
+
+        // ==================== Update Follow-up Completion ====================
+
+        order.followUpCompleted = order.items.every(
+          (item) =>
+            item.deliveredQuantity +
+              item.returnedQuantity ===
+            item.dispatchedQuantity
         );
 
-        order.deliveredAmount = order.items.reduce(
-          (sum, item) => sum + item.deliveredQuantity * item.unitPrice,
-          0,
-        );
-
-        order.status = cumulativeReturned === totalQuantity ? "Returned" : "Partially Returned";
-        order.followUpCompleted = order.items.every((item) => item.returnedQuantity + item.deliveredQuantity === item.dispatchedQuantity);
-        if (order.followUpCompleted && !order.completedAt) {
+        if (order.followUpCompleted) {
           order.completedBy = user._id;
           order.completedAt = new Date();
+        } else {
+          order.completedBy = null;
+          order.completedAt = null;
         }
+
         order.updatedBy = user._id;
 
         await order.save({ session });
 
-        // ==================== Save Status History ====================
+        // ==================== Save Return History ====================
 
         await this.saveHistory({
           order,
@@ -834,25 +1319,21 @@ class OrderHelper {
         });
 
         return {
-          order: this.serialize(order),
-          orderReturn: this.serialize(orderReturn),
+          order: this.serialize(order, user),
+          orderReturn: this.serialize(
+            orderReturn,
+            user
+          ),
           replayed: false,
         };
       });
     } catch (error) {
-      if (error.code === 11000 && key) {
-        const existing = await OrderReturn.findOne({ order: id, idempotencyKey: key });
+      // ==================== Handle Duplicate Idempotency Key ====================
 
-        if (existing) {
-          if (existing.idempotencyHash !== hash) this.fail("Idempotency key already used with different data", 409);
-          const order = await this.getAccessibleOrder(user, id, null);
+      if (error.code === 11000) {
+        const replay = await getExistingReturn();
 
-          return {
-            order: this.serialize(order),
-            orderReturn: this.serialize(existing),
-            replayed: true,
-          };
-        }
+        if (replay) return replay;
       }
 
       throw error;
@@ -863,4 +1344,3 @@ class OrderHelper {
 // ==================== Export Helper ====================
 
 module.exports = new OrderHelper();
-

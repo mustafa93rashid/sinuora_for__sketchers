@@ -1,10 +1,12 @@
+const catalog = require("../helpers/catalog.helper");
+const { serializeProduct } = require("../helpers/serialization.helper");
 const Product = require("../models/product.model");
 const ProductVariant = require("../models/productVariant.model");
 
 const { buildPagination, buildPaginationResponse } = require("../helpers/pagination.helper");
 const { buildSearchFilter, escapeRegex } = require("../helpers/search.helper");
 
-const { uploadImage, deleteImage } = require("../services/cloudinary.service");
+const { uploadImages, saveWithImages } = require("../services/cloudinary.service");
 
 class ProductController {
   // ==================== Create Product ====================
@@ -22,33 +24,11 @@ class ProductController {
         message: `Product model code ${normalizedModelCode} already exists`
       });
 
-    const product = await Product.create({
-      name,
-      modelCode: normalizedModelCode,
-      description,
-      brand,
-      category,
-      costPrice,
-      defaultSalePrice,
-      createdBy: req.user._id
-    });
-
-// ==================== Upload Product Images ====================
-
-if (req.files?.length) {
-  const uploadedImages = await Promise.all(
-    req.files.map((file) =>
-      uploadImage(file, "sinuora/products")
-    )
-  );
-
-  product.images = uploadedImages.map((image) => ({
-    url: image.url,
-    publicId: image.publicId
-  }));
-
-  await product.save();
-}
+    const product = new Product({ name, modelCode: normalizedModelCode, description, brand, category, costPrice, defaultSalePrice, createdBy: req.user._id });
+    await product.validate();
+    const images = await uploadImages(req.files);
+    product.images = images;
+    await saveWithImages(product, images);
 
     await product.populate({
       path: "createdBy",
@@ -58,14 +38,14 @@ if (req.files?.length) {
     return res.status(201).json({
       success: true,
       message: `Product ${product.name} created successfully`,
-      data: { product }
+      data: { product: serializeProduct(product, req.user) }
     });
   };
 
   // ==================== Get Products ====================
 
   getProducts = async (req, res) => {
-    const { page = 1, limit = 20, search, brand, category, isActive } = req.query;
+    const { page = 1, limit = 20, search, brand, category, isActive } = (req.validatedQuery || {});
 
     const filter = {
       ...buildSearchFilter(search, ["name", "modelCode"])
@@ -104,7 +84,7 @@ if (req.files?.length) {
       message: "Products retrieved successfully",
       results: products.length,
       pagination: buildPaginationResponse(page, limit, totalProducts),
-      data: { products }
+      data: { products: products.map(product => serializeProduct(product, req.user)) }
     });
   };
 
@@ -132,7 +112,7 @@ if (req.files?.length) {
       success: true,
       message: `Product ${product.name} retrieved successfully`,
       data: {
-        product,
+        product: serializeProduct(product, req.user),
         variants
       }
     });
@@ -197,29 +177,13 @@ if (req.files?.length) {
     if (defaultSalePrice !== undefined)
       product.defaultSalePrice = defaultSalePrice;
 
-    if (isActive !== undefined)
-      product.isActive = isActive;
+    if (isActive !== undefined) throw Object.assign(new Error("Use archive or restore"), { statusCode: 400 });
 
-// ==================== Add Product Images ====================
-
-if (req.files?.length) {
-  const uploadedImages = await Promise.all(
-    req.files.map((file) =>
-      uploadImage(file, "sinuora/products")
-    )
-  );
-
-  const newImages = uploadedImages.map((image) => ({
-    url: image.url,
-    publicId: image.publicId
-  }));
-
-  product.images.push(...newImages);
-}
-
+    await product.validate();
+    const images = await uploadImages(req.files);
+    product.images.push(...images);
     product.updatedBy = req.user._id;
-
-    await product.save();
+    await saveWithImages(product, images);
 
     await product.populate([
       {
@@ -235,7 +199,7 @@ if (req.files?.length) {
     return res.status(200).json({
       success: true,
       message: `Product ${product.name} updated successfully`,
-      data: { product }
+      data: { product: serializeProduct(product, req.user) }
     });
   };
 
@@ -260,14 +224,13 @@ if (req.files?.length) {
         message: "Product image not found"
       });
 
-    if (image.publicId)
-      await deleteImage(image.publicId);
+    const removedPublicId = image.publicId;
 
     product.images.pull(imageId);
 
     product.updatedBy = req.user._id;
 
-    await product.save();
+    await saveWithImages(product, [], [removedPublicId]);
 
     return res.status(200).json({
       success: true,
@@ -281,71 +244,15 @@ if (req.files?.length) {
   // ==================== Archive Product ====================
 
   archiveProduct = async (req, res) => {
-    const product = await Product.findById(req.params.id);
-
-    if (!product)
-      return res.status(404).json({
-        success: false,
-        message: `Product ${req.params.id} not found`
-      });
-
-    if (!product.isActive)
-      return res.status(400).json({
-        success: false,
-        message: "Product is already archived"
-      });
-
-    const reservedVariant = await ProductVariant.exists({
-      product: product._id,
-      reservedQuantity: { $gt: 0 }
-    });
-
-    if (reservedVariant)
-      return res.status(409).json({
-        success: false,
-        message: "Cannot archive product because one or more variants have reserved stock"
-      });
-
-    product.isActive = false;
-
-    product.updatedBy = req.user._id;
-
-    await product.save();
-
-    return res.status(200).json({
-      success: true,
-      message: `Product ${product.name} archived successfully`
-    });
+    const product = await catalog.setProductActive(req.params.id, false, req.user._id);
+    return res.json({ success: true, message: "Product archived", data: { product: serializeProduct(product, req.user) } });
   };
 
   // ==================== Restore Product ====================
 
   restoreProduct = async (req, res) => {
-    const product = await Product.findById(req.params.id);
-
-    if (!product)
-      return res.status(404).json({
-        success: false,
-        message: `Product ${req.params.id} not found`
-      });
-
-    if (product.isActive)
-      return res.status(400).json({
-        success: false,
-        message: "Product is already active"
-      });
-
-    product.isActive = true;
-
-    product.updatedBy = req.user._id;
-
-    await product.save();
-
-    return res.status(200).json({
-      success: true,
-      message: `Product ${product.name} restored successfully`,
-      data: { product }
-    });
+    const product = await catalog.setProductActive(req.params.id, true, req.user._id);
+    return res.json({ success: true, message: "Product restored", data: { product: serializeProduct(product, req.user) } });
   };
 }
 

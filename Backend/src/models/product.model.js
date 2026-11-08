@@ -53,14 +53,18 @@ const productSchema = new mongoose.Schema(
     costPrice: {
       type: Number,
       min: 0,
+      validate: { validator: Number.isSafeInteger, message: "Price must be a non-negative safe integer" },
       default: 0,
     },
 
     defaultSalePrice: {
       type: Number,
       min: 0,
+      validate: { validator: Number.isSafeInteger, message: "Price must be a non-negative safe integer" },
       default: 0,
     },
+
+    inventoryRevision: { type: Number, default: 0, select: false },
 
     isActive: {
       type: Boolean,
@@ -82,6 +86,7 @@ const productSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    optimisticConcurrency: true,
   },
 );
 

@@ -1,3 +1,4 @@
+const input = require("../helpers/orderInput.helper");
 const ProductVariant = require("../models/productVariant.model");
 
 const InventoryTransaction = require("../models/inventoryTransaction.model");
@@ -13,7 +14,7 @@ class InventoryController {
   // ==================== Get Inventory ====================
 
   getInventory = async (req, res) => {
-    const { page = 1, limit = 20, product, color, size, isActive, lowStock } = req.query;
+    const { page = 1, limit = 20, product, color, size, isActive, lowStock } = (req.validatedQuery || {});
 
     // ==================== Build Filter ====================
 
@@ -125,6 +126,7 @@ class InventoryController {
       reason,
       note,
       performedBy: req.user._id,
+      key: input.key(req.get("Idempotency-Key")),
     });
 
     // ==================== Populate Product ====================
@@ -160,6 +162,7 @@ class InventoryController {
       reason,
       note,
       performedBy: req.user._id,
+      key: input.key(req.get("Idempotency-Key")),
     });
 
     // ==================== Populate Product ====================
@@ -183,7 +186,7 @@ class InventoryController {
   // ==================== Get Inventory Transactions ====================
 
   getInventoryTransactions = async (req, res) => {
-    const { page = 1, limit = 20, variant, type, order, performedBy } = req.query;
+    const { page = 1, limit = 20, variant, type, order, performedBy } = (req.validatedQuery || {});
 
     // ==================== Build Filter ====================
 
@@ -212,7 +215,7 @@ class InventoryController {
     // ==================== Get Transactions ====================
 
     const [transactions, totalTransactions] = await Promise.all([
-      InventoryTransaction.find(filter)
+      InventoryTransaction.find(filter).select("-idempotencyKey -idempotencyHash")
         .populate({
           path: "variant",
           select: "product color size sku stockQuantity reservedQuantity",
@@ -254,7 +257,7 @@ class InventoryController {
   getVariantTransactions = async (req, res) => {
     const { variantId } = req.params;
 
-    const { page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 20 } = (req.validatedQuery || {});
 
     // ==================== Check Variant ====================
 
@@ -276,7 +279,7 @@ class InventoryController {
     const [transactions, totalTransactions] = await Promise.all([
       InventoryTransaction.find({
         variant: variantId,
-      })
+      }).select("-idempotencyKey -idempotencyHash")
         .populate({
           path: "performedBy",
           select: "fullName email role",
@@ -291,7 +294,7 @@ class InventoryController {
 
       InventoryTransaction.countDocuments({
         variant: variantId,
-      }),
+      }).select("-idempotencyKey -idempotencyHash"),
     ]);
 
     // ==================== Response ====================

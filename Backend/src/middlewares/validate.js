@@ -1,3 +1,4 @@
+const { matchedData } = require("express-validator");
 const { validationResult } = require("express-validator");
 
 // ==================== Validation Middleware ====================
@@ -16,6 +17,7 @@ const validate = (req, res, next) => {
     });
   }
 
+  req.validatedQuery = matchedData(req, { locations: ["query"] });
   return next();
 };
 
