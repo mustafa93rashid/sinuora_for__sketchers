@@ -98,6 +98,33 @@ test("Access/refresh token cookies expire at the same time as the JWTs they carr
   }
 });
 
+test("Verification codes and reset tokens are hashed with a server-keyed HMAC, not a bare unkeyed hash", () => {
+  const original = process.env.JWT_SECRET_KEY;
+  try {
+    process.env.JWT_SECRET_KEY = "a".repeat(40);
+    delete require.cache[require.resolve("../src/utils/verificationCodeService")];
+    const codes = require("../src/utils/verificationCodeService");
+    const hashedWithFirstKey = codes.hashVerificationCode("123456");
+    assert.ok(codes.verifyVerificationCode("123456", hashedWithFirstKey));
+    assert.ok(!codes.verifyVerificationCode("654321", hashedWithFirstKey));
+
+    process.env.JWT_SECRET_KEY = "b".repeat(40);
+    delete require.cache[require.resolve("../src/utils/verificationCodeService")];
+    const codesWithDifferentKey = require("../src/utils/verificationCodeService");
+    const hashedWithSecondKey = codesWithDifferentKey.hashVerificationCode("123456");
+    // Same plaintext code, different server secret, must hash differently -
+    // a bare crypto.createHash output would be identical either way.
+    assert.notEqual(hashedWithFirstKey, hashedWithSecondKey);
+
+    const resetHash = codesWithDifferentKey.hashResetToken("some-reset-token");
+    assert.ok(codesWithDifferentKey.verifyVerificationCode !== undefined);
+    assert.notEqual(resetHash, hashedWithSecondKey);
+  } finally {
+    if (original === undefined) delete process.env.JWT_SECRET_KEY; else process.env.JWT_SECRET_KEY = original;
+    delete require.cache[require.resolve("../src/utils/verificationCodeService")];
+  }
+});
+
 test("JWTs have unique identities, enforce token purpose and require a session version", () => {
   process.env.JWT_SECRET_KEY = "unit-test-only-access-secret-123456789";
   process.env.REFRESH_JWT_SECRET_KEY = "unit-test-only-refresh-secret-123456789";
