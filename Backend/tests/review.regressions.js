@@ -169,6 +169,15 @@ module.exports = async (t, { server, admin, manager, seller, followUp, create, b
     assert.ok(nonExistentEmail > 20, `expected a dummy password hash comparison (>20ms) even for an unknown email, took ${nonExistentEmail}ms`);
   });
 
+  await t.test("An account with anomalous failed-login activity is slowed, never blocked, and a correct password still succeeds", async () => {
+    const user = await makeUser();
+    const loginAnomaly = require("../src/helpers/loginAnomaly.helper");
+    for (let i = 0; i < 12; i++) loginAnomaly.recordFailedLogin(user.email);
+    const login = await api(null, "/auth/login", "POST", { email: user.email, password: "Abcd123!<b>X</b>" });
+    assert.equal(login.status, 200, JSON.stringify(login));
+    loginAnomaly.clearFailedLogins(user.email);
+  });
+
   await t.test("Legacy users without version fields can update a profile and log in", async () => {
     const user = await makeUser();
     await User.collection.updateOne({ _id: user._id }, { $unset: { __v: 1, tokenVersion: 1, deletedAt: 1 } });
