@@ -75,6 +75,29 @@ test("Password service exposes a cached dummy hash that verifies like a real one
   assert.ok(first.startsWith("$argon2id$"));
 });
 
+test("Access/refresh token cookies expire at the same time as the JWTs they carry, not a separately hardcoded duration", () => {
+  const keys = ["JWT_ACCESS_EXPIRES_IN", "JWT_REFRESH_EXPIRES_IN"];
+  const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    process.env.JWT_ACCESS_EXPIRES_IN = "15m";
+    process.env.JWT_REFRESH_EXPIRES_IN = "7d";
+    delete require.cache[require.resolve("../src/utils/cookiesService")];
+    const cookies = require("../src/utils/cookiesService");
+    const calls = [];
+    const res = { cookie: (key, value, options) => calls.push({ key, options }) };
+    cookies.setTokens(res, "access-token-value", "refresh-token-value");
+    const access = calls.find((call) => call.key === "accessToken");
+    const refresh = calls.find((call) => call.key === "refreshToken");
+    assert.equal(access.options.maxAge, 15 * 60 * 1000);
+    assert.equal(refresh.options.maxAge, 7 * 24 * 60 * 60 * 1000);
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    delete require.cache[require.resolve("../src/utils/cookiesService")];
+  }
+});
+
 test("JWTs have unique identities, enforce token purpose and require a session version", () => {
   process.env.JWT_SECRET_KEY = "unit-test-only-access-secret-123456789";
   process.env.REFRESH_JWT_SECRET_KEY = "unit-test-only-refresh-secret-123456789";
