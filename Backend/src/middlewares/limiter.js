@@ -30,30 +30,6 @@ const signinLimiter = createLimiter({
   message: "Too many login attempts. Please try again after 15 minutes.",
 });
 
-// ==================== Account-Aware Login Limiter ====================
-// signinLimiter alone is keyed by IP, so a distributed attacker (botnet,
-// proxy rotation) gets a fresh budget per IP against the same victim
-// account. This second limiter is keyed by the submitted email instead,
-// independent of IP (audit finding M-1).
-
-const accountKeyGenerator = (req) => {
-  const email = String(req.body?.email || "").trim().toLowerCase();
-  return email || req.ip;
-};
-
-const accountSigninLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: "draft-8",
-  legacyHeaders: false,
-  skipSuccessfulRequests: true,
-  keyGenerator: accountKeyGenerator,
-  message: {
-    success: false,
-    message: "Too many login attempts for this account. Please try again after 15 minutes.",
-  },
-});
-
 // ==================== Password Change Request Limiter ====================
 
 const passwordChangeRequestLimiter = createLimiter({
@@ -118,8 +94,6 @@ const activationLimiter = createLimiter({ windowMs: 15 * 60 * 1000, limit: 10, m
 module.exports = {
   activationLimiter,
   signinLimiter,
-  accountSigninLimiter,
-  accountKeyGenerator,
   passwordChangeRequestLimiter,
   passwordChangeVerifyLimiter,
   emailChangeRequestLimiter,

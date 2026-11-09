@@ -6,6 +6,7 @@ const codes = require("../utils/verificationCodeService");
 const email = require("../services/email.service");
 const { getFrontendUrl } = require("../config/frontend");
 const { hashToken, versionFilter, tokensFor, disconnectUser, sensitiveUnset } = require("../helpers/session.helper");
+const loginAnomaly = require("../helpers/loginAnomaly.helper");
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const active = { isActive: true, isAccountActivated: true, deletedAt: null };
 const publicFields = "_id fullName email phone role avatar isAccountActivated isActive lastLoginAt createdBy createdAt updatedAt";
@@ -14,7 +15,14 @@ class AuthController {
   login = async (req, res) => {
     const { email, password } = req.body;
     const found = await User.findOne({ email, deletedAt: null }).select("+password");
-    if (!found || !await passwords.compare(password, found.password)) fail("Invalid email or password");
+    // Always run a real Argon2 verify, even for a nonexistent account,
+    // so response time doesn't leak whether the email is registered.
+    const passwordValid = await passwords.compare(password, found ? found.password : await passwords.getDummyHash());
+    if (!found || !passwordValid) {
+      loginAnomaly.recordFailedLogin(email);
+      fail("Invalid email or password");
+    }
+    loginAnomaly.clearFailedLogins(email);
     if (!found.isActive || !found.isAccountActivated) fail("Account is not active", 403);
     // A successful login replaces the single existing session atomically.
     const user = await User.findOneAndUpdate(

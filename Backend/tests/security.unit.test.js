@@ -65,6 +65,16 @@ test("Allowed origins normalize scheme-less values (e.g. Vercel's bare VERCEL_UR
   }
 });
 
+test("Password service exposes a cached dummy hash that verifies like a real one for timing-safety use", async () => {
+  const passwords = require("../src/utils/passwordService");
+  const first = await passwords.getDummyHash();
+  const second = await passwords.getDummyHash();
+  assert.equal(first, second);
+  assert.equal(await passwords.compare("not the dummy password", first), false);
+  assert.equal(typeof first, "string");
+  assert.ok(first.startsWith("$argon2id$"));
+});
+
 test("JWTs have unique identities, enforce token purpose and require a session version", () => {
   process.env.JWT_SECRET_KEY = "unit-test-only-access-secret-123456789";
   process.env.REFRESH_JWT_SECRET_KEY = "unit-test-only-refresh-secret-123456789";

@@ -6,11 +6,11 @@ const asyncHandler = require("../utils/asyncHandler");
 
 const authController = require("../controllers/auth.controller");
 const {loginValidation, requestPasswordChangeValidation, verifyPasswordChangeValidation, forgotPasswordValidation, resetPasswordValidation} = require("../validation/auth.validate");
-const {signinLimiter, accountSigninLimiter, passwordChangeRequestLimiter, passwordChangeVerifyLimiter,forgotPasswordLimiter, resetPasswordLimiter,refreshTokenLimiter} = require("../middlewares/limiter");
+const {signinLimiter, passwordChangeRequestLimiter, passwordChangeVerifyLimiter,forgotPasswordLimiter, resetPasswordLimiter,refreshTokenLimiter} = require("../middlewares/limiter");
 
 // ==================== Login ====================
 
-router.post("/login", [signinLimiter, accountSigninLimiter, ...loginValidation], asyncHandler(authController.login));
+router.post("/login", [signinLimiter, ...loginValidation], asyncHandler(authController.login));
 
 // ==================== Logout ====================
 

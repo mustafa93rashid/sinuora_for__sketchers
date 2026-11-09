@@ -36,6 +36,21 @@ class PasswordService {
       throw new Error("Failed to verify password");
     }
   };
+
+  // ==================== Timing-Safe Dummy Hash ====================
+  // A real Argon2id hash with no corresponding account, so a lookup
+  // for a nonexistent email can still run a verify of comparable cost
+  // instead of returning near-instantly - closing the timing side
+  // channel that would otherwise let an attacker distinguish "wrong
+  // password" from "no such account" by response time.
+
+  getDummyHash = () => {
+    if (!this.dummyHashPromise) {
+      this.dummyHashPromise = this.hash("timing-safety-dummy-password");
+    }
+
+    return this.dummyHashPromise;
+  };
 }
 
 module.exports = new PasswordService();
