@@ -643,6 +643,14 @@ class OrderHelper {
         this.fail("Order cannot be updated at this stage", 409);
       }
 
+      // Items/quantities can disrupt a pick already in progress once
+      // preparation has started; notes, customer details, delivery fee
+      // and discount don't touch physical stock and remain editable
+      // (audit finding M-5).
+      if (body.items !== undefined && order.status !== "New") {
+        this.fail("Items cannot be changed once preparation has started", 409);
+      }
+
       if (
         !this.isAdmin(user) &&
         String(order.createdBy) !== String(user._id)

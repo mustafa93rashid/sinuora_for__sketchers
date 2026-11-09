@@ -263,6 +263,16 @@ test("Orders on an isolated MongoDB replica set", { skip: !process.env.MONGOD_BI
     assert.equal((await Variant.findById(b._id)).reservedQuantity, 0);
   });
 
+  await t.test("Items cannot be edited once physical preparation starts, but notes/discount still can be", async () => {
+    const v = await variant(3);
+    const created = await create(body(v), "preparing-edit-lock");
+    const id = String(created.order._id);
+    await helper.startPreparing({ user: manager, id });
+    await assert.rejects(helper.updateOrder({ user: seller, id, body: { items: body(v).items } }), { statusCode: 409 });
+    const updated = await helper.updateOrder({ user: seller, id, body: { notes: "Still editable" } });
+    assert.equal(updated.order.notes, "Still editable");
+  });
+
   await t.test("Pricing policy blocks saler out-of-bounds prices/discounts and flags the same as an exception for admins", async () => {
     const pricedProduct = await Product.create({ name: "Priced shoe", modelCode: "PRICED", costPrice: 70, defaultSalePrice: 100, createdBy: admin._id });
     const v = async (stock) => Variant.create({ product: pricedProduct._id, color: `priced-${++sequence}`, size: 38, stockQuantity: stock });
