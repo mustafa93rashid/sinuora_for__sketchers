@@ -156,6 +156,19 @@ module.exports = async (t, { server, admin, manager, seller, followUp, create, b
     assert.equal((await api(null, "/auth/refresh-token", "POST", {}, { Cookie: login.cookies })).status, 401);
   });
 
+  await t.test("Login takes a comparably expensive password check whether or not the email exists", async () => {
+    const user = await makeUser();
+    const time = async (payload) => {
+      const start = process.hrtime.bigint();
+      await api(null, "/auth/login", "POST", payload);
+      return Number(process.hrtime.bigint() - start) / 1e6;
+    };
+    const existingEmailWrongPassword = await time({ email: user.email, password: "wrong-password" });
+    const nonExistentEmail = await time({ email: `missing-${++sequence}@example.test`, password: "wrong-password" });
+    assert.ok(existingEmailWrongPassword > 20, `expected a real password hash comparison (>20ms), took ${existingEmailWrongPassword}ms`);
+    assert.ok(nonExistentEmail > 20, `expected a dummy password hash comparison (>20ms) even for an unknown email, took ${nonExistentEmail}ms`);
+  });
+
   await t.test("Legacy users without version fields can update a profile and log in", async () => {
     const user = await makeUser();
     await User.collection.updateOne({ _id: user._id }, { $unset: { __v: 1, tokenVersion: 1, deletedAt: 1 } });
