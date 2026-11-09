@@ -48,3 +48,28 @@ test("The failure-count store is bounded in size so an attacker probing many fak
   for (let i = 0; i < 6000; i++) loginAnomaly.recordFailedLogin(`flood-${i}@example.test`, now);
   assert.ok(loginAnomaly.size() <= 5000, `expected the store to stay bounded, was ${loginAnomaly.size()}`);
 });
+
+test("Eviction protects an account already over the anomaly threshold from being pushed out by a flood of fresh junk keys", () => {
+  const target = "protected@example.test";
+  const now = Date.now();
+  for (let i = 0; i < 10; i++) loginAnomaly.recordFailedLogin(target, now);
+  assert.ok(loginAnomaly.getDelayMs(target, now) > 0);
+  for (let i = 0; i < 6000; i++) loginAnomaly.recordFailedLogin(`flood2-${i}@example.test`, now + 1);
+  assert.ok(loginAnomaly.getDelayMs(target, now + 1) > 0, "the already-anomalous account must still be tracked and delayed after the flood");
+  loginAnomaly.clearFailedLogins(target);
+});
+
+test("reserveDelay serializes concurrent requests for the same account so they queue instead of all reading the same stale delay", () => {
+  const email = "burst@example.test";
+  const now = Date.now();
+  for (let i = 0; i < 10; i++) loginAnomaly.recordFailedLogin(email, now);
+  const first = loginAnomaly.reserveDelay(email, now);
+  const second = loginAnomaly.reserveDelay(email, now);
+  const third = loginAnomaly.reserveDelay(email, now);
+  assert.ok(first > 0, "expected a delay once the threshold is crossed");
+  assert.ok(second > first, "a second concurrent request must queue behind the first, not read the same delay");
+  assert.ok(third > second, "a third concurrent request must queue behind the first two");
+  assert.ok(third <= 3000, "the queued wait must still respect the overall cap");
+  loginAnomaly.clearFailedLogins(email);
+  assert.equal(loginAnomaly.reserveDelay(email, now), 0, "a cleared account must not be delayed");
+});

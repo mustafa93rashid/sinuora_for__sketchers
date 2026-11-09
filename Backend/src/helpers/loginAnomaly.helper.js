@@ -3,22 +3,31 @@
 // block) a targeted or distributed brute-force attempt, and logs a
 // masked warning once a threshold is crossed.
 //
-// History: a first version of this fix (audit finding M-1) added a
-// hard rate limit keyed purely on the submitted email. Security review
-// flagged that as a worse vulnerability than the one it closed - anyone
-// who merely knows a coworker's email could lock them out of login
-// with zero credentials. A second version removed all friction and
-// only logged a warning; a follow-up review flagged that as a control
-// regression (no actual throttling left) plus two hygiene issues: the
-// failure-count store had no upper bound, and the log line printed a
-// full email address. This version adds all three back safely:
-//   - getDelayMs returns a small, capped delay (never a hard block) so
-//     repeated failures against one account are throttled without ever
-//     preventing the real owner's correct-password request from
-//     eventually succeeding.
-//   - the store evicts its oldest entry once it reaches MAX_ENTRIES, so
-//     probing many distinct fake emails cannot grow memory unbounded.
-//   - the log line masks the local part of the email.
+// History: a first version added a hard rate limit keyed purely on the
+// submitted email (audit finding M-1); security review flagged that as
+// a worse vulnerability than the one it closed - anyone who merely
+// knows a coworker's email could lock them out of login with zero
+// credentials. A second version removed all friction and only logged a
+// warning; review flagged that as a control regression plus an
+// unbounded store and an over-exposed log line, which a third version
+// fixed with a capped progressive delay, a bounded/evicting store, and
+// email masking. A fourth review round found two remaining gaps, both
+// fixed here:
+//   - evictIfFull could push out an already-anomalous (over-threshold)
+//     entry to make room for a flood of fresh junk keys, letting an
+//     attacker reset their own throttle state by flooding unrelated
+//     emails. Eviction now only ever removes a sub-threshold entry,
+//     and only falls back to an over-threshold one if literally every
+//     entry in the store is over threshold.
+//   - getDelayMs was a pure snapshot of the count-based delay, so N
+//     concurrent requests for the same email all read the same value
+//     and none of them actually queued behind each other. reserveDelay
+//     is now the entry point login() calls: it tracks a per-key
+//     "nextAllowedAt" timestamp and advances it *synchronously* on
+//     every call (JS's run-to-completion semantics make this safe
+//     without a real lock), so concurrent requests for one email are
+//     serialized into a queue instead of all firing together - while
+//     still capped overall so the wait can never run away unbounded.
 
 const WINDOW_MS = 15 * 60 * 1000;
 const THRESHOLD = 10;
@@ -40,14 +49,21 @@ const maskEmail = (email) => {
 
 const isExpired = (entry, now) => now - entry.windowStart > WINDOW_MS;
 
-// Opportunistically drops expired entries while looking for the oldest
-// live one to evict, so the store self-cleans under normal traffic
-// instead of only ever growing until it hits the cap.
+const isOverThreshold = (entry) => entry.count >= THRESHOLD;
+
+// Opportunistically drops expired entries while choosing one to evict.
+// Prefers the oldest entry that is still under the anomaly threshold,
+// so a flood of fresh low-count junk keys displaces other low-count
+// junk, never an account that's already flagged as anomalous - unless
+// the entire store is somehow over threshold, in which case evicting
+// the oldest one is the only option left.
 const evictIfFull = (now) => {
   if (failureCounts.size < MAX_ENTRIES) return;
 
-  let oldestKey = null;
-  let oldestStart = Infinity;
+  let bestKey = null;
+  let bestStart = Infinity;
+  let oldestOverKey = null;
+  let oldestOverStart = Infinity;
 
   for (const [key, entry] of failureCounts) {
     if (isExpired(entry, now)) {
@@ -55,15 +71,25 @@ const evictIfFull = (now) => {
       continue;
     }
 
-    if (entry.windowStart < oldestStart) {
-      oldestStart = entry.windowStart;
-      oldestKey = key;
+    if (isOverThreshold(entry)) {
+      if (entry.windowStart < oldestOverStart) {
+        oldestOverStart = entry.windowStart;
+        oldestOverKey = key;
+      }
+      continue;
+    }
+
+    if (entry.windowStart < bestStart) {
+      bestStart = entry.windowStart;
+      bestKey = key;
     }
   }
 
-  if (failureCounts.size >= MAX_ENTRIES && oldestKey) {
-    failureCounts.delete(oldestKey);
-  }
+  if (failureCounts.size < MAX_ENTRIES) return;
+
+  const toEvict = bestKey ?? oldestOverKey;
+
+  if (toEvict) failureCounts.delete(toEvict);
 };
 
 const recordFailedLogin = (email, now = Date.now()) => {
@@ -75,7 +101,7 @@ const recordFailedLogin = (email, now = Date.now()) => {
 
   if (!existing || isExpired(existing, now)) {
     evictIfFull(now);
-    failureCounts.set(key, { count: 1, windowStart: now, warned: false });
+    failureCounts.set(key, { count: 1, windowStart: now, warned: false, nextAllowedAt: now });
     return 1;
   }
 
@@ -93,10 +119,18 @@ const clearFailedLogins = (email) => {
   failureCounts.delete(normalizeEmail(email));
 };
 
-// A small, capped delay once an account crosses the failure threshold -
-// never a block. Lets a slow, deliberate attacker's throughput drop
-// sharply while guaranteeing the real owner's correct-password request
-// still succeeds, just a little slower.
+const delayForCount = (count) => {
+  const over = count - THRESHOLD + 1;
+
+  if (over <= 0) return 0;
+
+  return Math.min(BASE_DELAY_MS * over, MAX_DELAY_MS);
+};
+
+// Read-only snapshot of the current delay magnitude for an account,
+// with no side effects - does not reserve a queue slot. Prefer
+// reserveDelay() in request-handling code; this exists for
+// introspection/tests.
 const getDelayMs = (email, now = Date.now()) => {
   const key = normalizeEmail(email);
 
@@ -106,11 +140,36 @@ const getDelayMs = (email, now = Date.now()) => {
 
   if (!existing || isExpired(existing, now)) return 0;
 
-  const over = existing.count - THRESHOLD + 1;
+  return delayForCount(existing.count);
+};
 
-  if (over <= 0) return 0;
+// Concurrency-safe entry point: reserves this call's slot in the
+// per-key queue and returns how long THIS call must wait, advancing
+// the key's nextAllowedAt synchronously so a burst of concurrent
+// requests for the same email queue up one after another rather than
+// each reading the same stale delay. The wait is still capped overall
+// at MAX_DELAY_MS so a large burst clusters at the cap instead of
+// growing an unbounded queue.
+const reserveDelay = (email, now = Date.now()) => {
+  const key = normalizeEmail(email);
 
-  return Math.min(BASE_DELAY_MS * over, MAX_DELAY_MS);
+  if (!key) return 0;
+
+  const entry = failureCounts.get(key);
+
+  if (!entry || isExpired(entry, now)) return 0;
+
+  const step = delayForCount(entry.count);
+
+  if (step <= 0) return 0;
+
+  const ceiling = now + MAX_DELAY_MS;
+  const earliest = Math.max(now + step, (entry.nextAllowedAt ?? now) + step);
+  const releaseAt = Math.min(earliest, ceiling);
+
+  entry.nextAllowedAt = releaseAt;
+
+  return releaseAt - now;
 };
 
 const size = () => failureCounts.size;
@@ -120,6 +179,7 @@ module.exports = {
   recordFailedLogin,
   clearFailedLogins,
   getDelayMs,
+  reserveDelay,
   maskEmail,
   size,
 };

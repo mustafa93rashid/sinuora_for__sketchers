@@ -14,7 +14,7 @@ const publicFields = "_id fullName email phone role avatar isAccountActivated is
 class AuthController {
   login = async (req, res) => {
     const { email, password } = req.body;
-    const delay = loginAnomaly.getDelayMs(email);
+    const delay = loginAnomaly.reserveDelay(email);
     if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
     const found = await User.findOne({ email, deletedAt: null }).select("+password");
     // Always run a real Argon2 verify, even for a nonexistent account,
