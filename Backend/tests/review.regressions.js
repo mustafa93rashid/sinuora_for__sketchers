@@ -157,6 +157,36 @@ module.exports = async (t, { server, admin, manager, seller, followUp, create, b
     await assert.rejects(create(body(v), "cannot-sell-damaged"), { statusCode: 409 });
   });
 
+  await t.test("Adjustment can correct stock on an archived variant without restoring it first", async () => {
+    const p = await newProduct();
+    const v = await Variant.create({ product: p._id, color: "Correctable", size: 38, stockQuantity: 5 });
+    await catalog.setVariantActive(v._id, false);
+    await inventory.adjustStock({ variantId: v._id, newQuantity: 0, performedBy: admin._id });
+    const updated = await Variant.findById(v._id);
+    assert.equal(updated.stockQuantity, 0);
+    assert.equal(updated.isActive, false);
+  });
+
+  await t.test("Adjustment also works after the whole product is archived (cascading the variant inactive)", async () => {
+    const p = await newProduct();
+    const v = await Variant.create({ product: p._id, color: "CorrectableCascade", size: 38, stockQuantity: 5 });
+    await catalog.setProductActive(p._id, false, admin._id);
+    await inventory.adjustStock({ variantId: v._id, newQuantity: 0, performedBy: admin._id });
+    const updated = await Variant.findById(v._id);
+    assert.equal(updated.stockQuantity, 0);
+    assert.equal(updated.isActive, false);
+  });
+
+  await t.test("A resellable return intentionally still restocks an archived variant, so staff can process a customer return after discontinuation", async () => {
+    const o = await dispatched(2);
+    await catalog.setVariantActive(o.v._id, false);
+    const result = await returning(o, 1, "archived-return-001");
+    assert.equal(result.order.status, "Partially Returned");
+    const v = await Variant.findById(o.v._id);
+    assert.equal(v.stockQuantity, 1);
+    assert.equal(v.isActive, false, "the variant stays archived; only its stock figure is corrected");
+  });
+
   await t.test("Logout revokes access and refresh tokens while passwords retain their exact bytes", async () => {
     const user = await makeUser();
     const wrong = await api(null, "/auth/login", "POST", { email: user.email, password: "Abcd123!X" });

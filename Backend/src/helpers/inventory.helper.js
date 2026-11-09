@@ -142,12 +142,24 @@ class InventoryHelper {
     let update;
 
     // ==================== Active Variant Required ====================
+    // ADJUSTMENT is deliberately excluded: an archived variant can
+    // still carry a stale physical stock figure (e.g. a damaged write-
+    // off, or an inflated count from a customer return - see RETURN
+    // below), and restoring the variant just to zero it out and
+    // re-archiving it is unnecessary friction for an admin correction
+    // (audit finding M-4).
 
-    if (["IN", "RESERVE", "ADJUSTMENT"].includes(type)) {
+    if (["IN", "RESERVE"].includes(type)) {
       filter.isActive = true;
     }
 
     // ==================== Add Stock ====================
+    // RETURN intentionally does not require isActive either: a
+    // resellable return can arrive for an order placed before its
+    // variant was discontinued, and staff must still be able to
+    // record the physical stock coming back even though the item is
+    // no longer sellable (audit finding L-5). The variant stays
+    // archived - only its stock figure changes.
 
     if (type === "IN" || type === "RETURN") {
       filter.stockQuantity = {
@@ -294,7 +306,11 @@ class InventoryHelper {
       if (["IN", "RESERVE", "ADJUSTMENT"].includes(type)) {
         const variant = await ProductVariant.findById(variantId).session(activeSession);
         if (!variant) this.fail("Product variant not found", 404);
-        await lockProduct(variant.product, activeSession);
+        // ADJUSTMENT must still work after the parent product itself
+        // was archived (which cascades its variants inactive too), so
+        // staff can zero out a stranded stock figure without
+        // restoring the whole discontinued product line first.
+        await lockProduct(variant.product, activeSession, type !== "ADJUSTMENT");
       }
       // ==================== Prepare Movement ====================
 
