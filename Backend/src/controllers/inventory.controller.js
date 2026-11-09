@@ -1,4 +1,5 @@
 const input = require("../helpers/orderInput.helper");
+const { escapeRegex } = require("../helpers/search.helper");
 const ProductVariant = require("../models/productVariant.model");
 
 const InventoryTransaction = require("../models/inventoryTransaction.model");
@@ -25,7 +26,7 @@ class InventoryController {
     }
 
     if (color) {
-      filter.color = color;
+      filter.color = { $regex: `^${escapeRegex(color)}$`, $options: "i" };
     }
 
     if (size !== undefined) {

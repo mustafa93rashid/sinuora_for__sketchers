@@ -1,4 +1,5 @@
 const multer = require("multer");
+const { MAX_IMAGE_SIZE } = require("./upload.middleware");
 
 // ==================== Global Error Handler ====================
 
@@ -14,7 +15,7 @@ const errorHandler = (err, req, res, next) => {
 
     switch (err.code) {
       case "LIMIT_FILE_SIZE":
-        message = "File size must not exceed 5 MB";
+        message = `File size must not exceed ${MAX_IMAGE_SIZE / (1024 * 1024)} MB`;
         break;
 
       case "LIMIT_FILE_COUNT":

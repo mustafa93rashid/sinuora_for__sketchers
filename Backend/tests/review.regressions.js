@@ -75,6 +75,14 @@ module.exports = async (t, { server, admin, manager, seller, followUp, create, b
     assert.equal((await api(manager, "/users?search=%5B")).status, 200);
   });
 
+  await t.test("Inventory color filter is case-insensitive, matching the product-variant listing endpoint", async () => {
+    const p = await newProduct();
+    const v = await Variant.create({ product: p._id, color: "Black", size: 38 });
+    const result = await api(manager, `/inventory?product=${p._id}&color=black`);
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.data.data.variants.map(row => row._id), [String(v._id)]);
+  });
+
   await t.test("Inventory ledger is restricted and manual additions replay exactly once", async () => {
     const v = await variant(0);
     for (const user of [seller, followUp]) {

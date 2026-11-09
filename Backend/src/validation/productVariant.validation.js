@@ -5,24 +5,7 @@ const {
   query,
   validationResult,
 } = require("express-validator");
-
-// ==================== Sizes ====================
-
-const PRODUCT_SIZES = [
-  36,
-  36.5,
-  37,
-  37.5,
-  38,
-  38.5,
-  39,
-  39.5,
-  40,
-  40.5,
-  41,
-  41.5,
-  42,
-];
+const { PRODUCT_SIZES } = require("../config/productSizes");
 
 // ==================== Handle Validation Errors ====================
 
