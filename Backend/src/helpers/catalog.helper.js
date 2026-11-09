@@ -25,6 +25,14 @@ const setProductActive = (id, active, userId) => runTransaction(async session =>
   product.isActive = active;
   product.updatedBy = userId;
   await product.save({ session });
+  // Archiving a product used to leave its variants reporting isActive:true,
+  // so inventory/variant listings filtered by isActive kept showing a
+  // discontinued line as sellable. Cascade the archive down; restoring the
+  // product does NOT cascade back on, since some variants may have been
+  // individually archived on purpose before the product was.
+  if (!active) {
+    await Variant.updateMany({ product: id, isActive: true }, { $set: { isActive: false }, $inc: { __v: 1 } }).session(session);
+  }
   product.$session(null);
   return product;
 });

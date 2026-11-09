@@ -73,3 +73,20 @@ test("reserveDelay serializes concurrent requests for the same account so they q
   loginAnomaly.clearFailedLogins(email);
   assert.equal(loginAnomaly.reserveDelay(email, now), 0, "a cleared account must not be delayed");
 });
+
+test("claimAttempt counts the attempt itself before computing its delay, so simultaneous attempts stack instead of all reading a stale pre-attempt count", () => {
+  const email = "simultaneous@example.test";
+  const now = Date.now();
+  for (let i = 0; i < 9; i++) loginAnomaly.recordFailedLogin(email, now); // one below the threshold
+  // Three "simultaneous" attempts, modeled as back-to-back synchronous
+  // calls with the same `now` - exactly what three concurrent requests
+  // produce in Node, since each one's synchronous code runs to
+  // completion before any of their awaited work resolves.
+  const first = loginAnomaly.claimAttempt(email, now);
+  const second = loginAnomaly.claimAttempt(email, now);
+  const third = loginAnomaly.claimAttempt(email, now);
+  assert.ok(first > 0, "the 10th attempt (9 prior + this one) must already be delayed, not wait for a confirmed failure first");
+  assert.ok(second > first, "the 11th attempt must be delayed more than the 10th");
+  assert.ok(third > second, "the 12th attempt must be delayed more than the 11th");
+  loginAnomaly.clearFailedLogins(email);
+});

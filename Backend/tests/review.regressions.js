@@ -111,6 +111,19 @@ module.exports = async (t, { server, admin, manager, seller, followUp, create, b
     }
   });
 
+  await t.test("Archiving a product cascades isActive:false to its variants; restoring the product does not cascade back on", async () => {
+    const p = await newProduct();
+    const v1 = await Variant.create({ product: p._id, color: "Cascade1", size: 38 });
+    const v2 = await Variant.create({ product: p._id, color: "Cascade2", size: 38 });
+    await catalog.setVariantActive(v2._id, false);
+    await catalog.setProductActive(p._id, false, admin._id);
+    assert.equal((await Variant.findById(v1._id)).isActive, false);
+    assert.equal((await Variant.findById(v2._id)).isActive, false);
+    await catalog.setProductActive(p._id, true, admin._id);
+    assert.equal((await Variant.findById(v1._id)).isActive, false, "restoring the product must not reactivate variants");
+    assert.equal((await Variant.findById(v2._id)).isActive, false);
+  });
+
   await t.test("Variant identity is immutable after use, including legacy history and races", async () => {
     const p = await newProduct();
     const unused = await catalog.createVariant({ product: p._id, color: "Original", size: 38 });

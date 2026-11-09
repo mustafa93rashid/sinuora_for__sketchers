@@ -1,33 +1,29 @@
 // ==================== Login Anomaly Monitor ====================
-// Tracks failed login attempts per normalized email to slow down (not
-// block) a targeted or distributed brute-force attempt, and logs a
-// masked warning once a threshold is crossed.
+// Tracks login attempts per normalized email to slow down (not block)
+// a targeted or distributed brute-force attempt, and logs a masked
+// warning once a threshold is crossed.
 //
-// History: a first version added a hard rate limit keyed purely on the
-// submitted email (audit finding M-1); security review flagged that as
-// a worse vulnerability than the one it closed - anyone who merely
-// knows a coworker's email could lock them out of login with zero
-// credentials. A second version removed all friction and only logged a
-// warning; review flagged that as a control regression plus an
-// unbounded store and an over-exposed log line, which a third version
-// fixed with a capped progressive delay, a bounded/evicting store, and
-// email masking. A fourth review round found two remaining gaps, both
-// fixed here:
-//   - evictIfFull could push out an already-anomalous (over-threshold)
-//     entry to make room for a flood of fresh junk keys, letting an
-//     attacker reset their own throttle state by flooding unrelated
-//     emails. Eviction now only ever removes a sub-threshold entry,
-//     and only falls back to an over-threshold one if literally every
-//     entry in the store is over threshold.
-//   - getDelayMs was a pure snapshot of the count-based delay, so N
-//     concurrent requests for the same email all read the same value
-//     and none of them actually queued behind each other. reserveDelay
-//     is now the entry point login() calls: it tracks a per-key
-//     "nextAllowedAt" timestamp and advances it *synchronously* on
-//     every call (JS's run-to-completion semantics make this safe
-//     without a real lock), so concurrent requests for one email are
-//     serialized into a queue instead of all firing together - while
-//     still capped overall so the wait can never run away unbounded.
+// History (audit finding M-1, four security review rounds):
+//   1. A hard rate limit keyed purely on the submitted email let anyone
+//      who merely knows a coworker's email lock them out of login with
+//      zero credentials - reverted.
+//   2. A detection-only, log-only version removed all friction (control
+//      regression) and had an unbounded store plus a fully-exposed
+//      email in its log line - fixed with a capped progressive delay, a
+//      bounded/evicting store, and masked logging.
+//   3. The eviction policy could push out an already-anomalous entry to
+//      make room for a flood of fresh junk keys, and the delay snapshot
+//      (getDelayMs) had no side effects, so concurrent requests for one
+//      email all read the same stale value instead of queueing - fixed
+//      with threshold-aware eviction and a synchronous per-key
+//      "nextAllowedAt" queue (reserveDelay).
+//   4. reserveDelay still read a count that only grew once a request's
+//      own password check had resolved and failed, so N truly
+//      concurrent requests could all read the same below-threshold
+//      count and none would be delayed. claimAttempt below counts the
+//      attempt and reserves its delay slot in one synchronous step, so
+//      it must be called once at the very start of login - before any
+//      await - instead of waiting for the request to fail.
 
 const WINDOW_MS = 15 * 60 * 1000;
 const THRESHOLD = 10;
@@ -92,27 +88,40 @@ const evictIfFull = (now) => {
   if (toEvict) failureCounts.delete(toEvict);
 };
 
+// Fetches the live entry for a key, starting a fresh window if there
+// is none or the previous one expired. Does not increment the count.
+const getLiveEntry = (key, now) => {
+  const existing = failureCounts.get(key);
+
+  if (existing && !isExpired(existing, now)) return existing;
+
+  evictIfFull(now);
+
+  const entry = { count: 0, windowStart: now, warned: false, nextAllowedAt: now };
+
+  failureCounts.set(key, entry);
+
+  return entry;
+};
+
+const warnIfThresholdCrossed = (entry, key) => {
+  if (entry.count >= THRESHOLD && !entry.warned) {
+    entry.warned = true;
+    console.warn(`[auth] ${entry.count} failed login attempts for one account within 15 minutes: ${maskEmail(key)}`);
+  }
+};
+
 const recordFailedLogin = (email, now = Date.now()) => {
   const key = normalizeEmail(email);
 
   if (!key) return 0;
 
-  const existing = failureCounts.get(key);
+  const entry = getLiveEntry(key, now);
 
-  if (!existing || isExpired(existing, now)) {
-    evictIfFull(now);
-    failureCounts.set(key, { count: 1, windowStart: now, warned: false, nextAllowedAt: now });
-    return 1;
-  }
+  entry.count += 1;
+  warnIfThresholdCrossed(entry, key);
 
-  existing.count += 1;
-
-  if (existing.count >= THRESHOLD && !existing.warned) {
-    existing.warned = true;
-    console.warn(`[auth] ${existing.count} failed login attempts for one account within 15 minutes: ${maskEmail(key)}`);
-  }
-
-  return existing.count;
+  return entry.count;
 };
 
 const clearFailedLogins = (email) => {
@@ -127,38 +136,12 @@ const delayForCount = (count) => {
   return Math.min(BASE_DELAY_MS * over, MAX_DELAY_MS);
 };
 
-// Read-only snapshot of the current delay magnitude for an account,
-// with no side effects - does not reserve a queue slot. Prefer
-// reserveDelay() in request-handling code; this exists for
-// introspection/tests.
-const getDelayMs = (email, now = Date.now()) => {
-  const key = normalizeEmail(email);
-
-  if (!key) return 0;
-
-  const existing = failureCounts.get(key);
-
-  if (!existing || isExpired(existing, now)) return 0;
-
-  return delayForCount(existing.count);
-};
-
-// Concurrency-safe entry point: reserves this call's slot in the
-// per-key queue and returns how long THIS call must wait, advancing
-// the key's nextAllowedAt synchronously so a burst of concurrent
-// requests for the same email queue up one after another rather than
-// each reading the same stale delay. The wait is still capped overall
-// at MAX_DELAY_MS so a large burst clusters at the cap instead of
+// Advances entry.nextAllowedAt synchronously and returns this call's
+// wait, queueing concurrent callers one behind another instead of
+// letting them all read the same delay. Capped overall at
+// now + MAX_DELAY_MS so a large burst clusters at the cap instead of
 // growing an unbounded queue.
-const reserveDelay = (email, now = Date.now()) => {
-  const key = normalizeEmail(email);
-
-  if (!key) return 0;
-
-  const entry = failureCounts.get(key);
-
-  if (!entry || isExpired(entry, now)) return 0;
-
+const scheduleRelease = (entry, now) => {
   const step = delayForCount(entry.count);
 
   if (step <= 0) return 0;
@@ -172,6 +155,57 @@ const reserveDelay = (email, now = Date.now()) => {
   return releaseAt - now;
 };
 
+// Read-only snapshot of the current delay magnitude for an account,
+// with no side effects - does not touch the count or the queue.
+// Exists for introspection/tests; request-handling code should call
+// claimAttempt() instead.
+const getDelayMs = (email, now = Date.now()) => {
+  const key = normalizeEmail(email);
+
+  if (!key) return 0;
+
+  const existing = failureCounts.get(key);
+
+  if (!existing || isExpired(existing, now)) return 0;
+
+  return delayForCount(existing.count);
+};
+
+// Reserves a queue slot for the account's *current* count without
+// incrementing it. Kept for callers that only want the queueing
+// behavior around an already-recorded count; login() should use
+// claimAttempt() instead, since that also counts the attempt itself.
+const reserveDelay = (email, now = Date.now()) => {
+  const key = normalizeEmail(email);
+
+  if (!key) return 0;
+
+  const entry = failureCounts.get(key);
+
+  if (!entry || isExpired(entry, now)) return 0;
+
+  return scheduleRelease(entry, now);
+};
+
+// The entry point login() should call, once, at the very start of the
+// request - before any await. Counts this attempt immediately (not
+// only after it's confirmed to have failed) and reserves this call's
+// delay slot in the same synchronous step, so truly concurrent
+// requests for one email each see the others' in-flight attempts
+// instead of all reading a stale, below-threshold count.
+const claimAttempt = (email, now = Date.now()) => {
+  const key = normalizeEmail(email);
+
+  if (!key) return 0;
+
+  const entry = getLiveEntry(key, now);
+
+  entry.count += 1;
+  warnIfThresholdCrossed(entry, key);
+
+  return scheduleRelease(entry, now);
+};
+
 const size = () => failureCounts.size;
 
 module.exports = {
@@ -180,6 +214,7 @@ module.exports = {
   clearFailedLogins,
   getDelayMs,
   reserveDelay,
+  claimAttempt,
   maskEmail,
   size,
 };

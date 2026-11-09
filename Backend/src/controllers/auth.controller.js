@@ -14,16 +14,17 @@ const publicFields = "_id fullName email phone role avatar isAccountActivated is
 class AuthController {
   login = async (req, res) => {
     const { email, password } = req.body;
-    const delay = loginAnomaly.reserveDelay(email);
+    // Count and delay this attempt before anything async runs, so
+    // genuinely concurrent requests for the same account each see the
+    // others' in-flight attempts instead of all reading the same
+    // stale, below-threshold count.
+    const delay = loginAnomaly.claimAttempt(email);
     if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
     const found = await User.findOne({ email, deletedAt: null }).select("+password");
     // Always run a real Argon2 verify, even for a nonexistent account,
     // so response time doesn't leak whether the email is registered.
     const passwordValid = await passwords.compare(password, found ? found.password : await passwords.getDummyHash());
-    if (!found || !passwordValid) {
-      loginAnomaly.recordFailedLogin(email);
-      fail("Invalid email or password");
-    }
+    if (!found || !passwordValid) fail("Invalid email or password");
     loginAnomaly.clearFailedLogins(email);
     if (!found.isActive || !found.isAccountActivated) fail("Account is not active", 403);
     // A successful login replaces the single existing session atomically.
