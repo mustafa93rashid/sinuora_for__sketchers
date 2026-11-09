@@ -430,5 +430,15 @@ test("Orders on an isolated MongoDB replica set", { skip: !process.env.MONGOD_BI
     assert.ok(followUpCharts.topModels.every((row) => row.revenue === undefined));
   });
 
+  await t.test("Dashboard overview rejects a date range wider than 366 days, matching the sales-charts cap", async () => {
+    const dashboardHelper = require("../src/helpers/dashboard.helper");
+    await assert.rejects(
+      dashboardHelper.getOverview(manager, { from: "2000-01-01", to: "2030-01-01" }),
+      { statusCode: 400 }
+    );
+    const ok = await dashboardHelper.getOverview(manager, { from: "2026-01-01", to: "2026-06-30" });
+    assert.ok(Number.isInteger(ok.statistics.totalOrders));
+  });
+
   await require("./review.regressions")(t, { server, admin, manager, seller, followUp, create, body, variant, dispatched, returning });
 });

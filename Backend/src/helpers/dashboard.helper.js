@@ -35,6 +35,17 @@ class DashboardHelper {
       );
     }
 
+    // Unlike sales-charts (capped at 366 days via getChartPeriod), an
+    // explicit from/to here had no upper bound at all, letting any
+    // role request an open-ended range (e.g. 30 years) that forces a
+    // full collection scan on every call (audit finding M-7).
+    if (start && end && end - start > 366 * 86400000) {
+      throw Object.assign(
+        new Error("Date range must not exceed 366 days"),
+        { statusCode: 400 }
+      );
+    }
+
     return { start, end };
   };
 
