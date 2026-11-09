@@ -74,13 +74,13 @@ class DashboardHelper {
     if (this.canViewDashboardFinancials(user)) return overview;
 
     const {
-      confirmedRevenue,
+      deliveredItemValue,
       totalOrderValue,
       returnedValue,
       ...operationalStatistics
     } = overview.statistics;
 
-    const { confirmedRevenue: _today, returnedValue: __today, ...operationalToday } =
+    const { deliveredItemValue: _today, returnedValue: __today, ...operationalToday } =
       overview.today;
 
     return {
@@ -135,7 +135,11 @@ class DashboardHelper {
           _id: null,
           totalOrders: { $sum: 1 },
           totalOrderValue: { $sum: "$totalAmount" },
-          confirmedRevenue: { $sum: "$deliveredAmount" },
+          // Item value only - no discount/delivery-fee proration, matching
+          // Order.deliveredAmount's own documented semantics (README.md).
+          // Named deliveredItemValue, not "revenue", so a dashboard reader
+          // doesn't mistake it for actual cash collected (audit finding M-6).
+          deliveredItemValue: { $sum: "$deliveredAmount" },
           returnedValue: { $sum: "$returnedAmount" },
           newOrders: {
             $sum: { $cond: [{ $eq: ["$status", "New"] }, 1, 0] },
@@ -172,7 +176,7 @@ class DashboardHelper {
     const stats = result || {
       totalOrders: 0,
       totalOrderValue: 0,
-      confirmedRevenue: 0,
+      deliveredItemValue: 0,
       returnedValue: 0,
       newOrders: 0,
       preparingOrders: 0,
@@ -252,7 +256,7 @@ class DashboardHelper {
       statistics,
       today: {
         orders: today.totalOrders,
-        confirmedRevenue: today.confirmedRevenue,
+        deliveredItemValue: today.deliveredItemValue,
         returnedValue: today.returnedValue,
       },
       inventory,

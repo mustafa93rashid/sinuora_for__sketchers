@@ -407,16 +407,16 @@ test("Orders on an isolated MongoDB replica set", { skip: !process.env.MONGOD_BI
 
     for (const user of [admin, manager, seller]) {
       const data = await dashboardHelper.getOverview(user, {});
-      assert.ok(Number.isInteger(data.statistics.confirmedRevenue));
-      assert.ok(Number.isInteger(data.today.confirmedRevenue));
+      assert.ok(Number.isInteger(data.statistics.deliveredItemValue));
+      assert.ok(Number.isInteger(data.today.deliveredItemValue));
     }
 
     const followUpOverview = await dashboardHelper.getOverview(followUp, {});
     assert.ok(Number.isInteger(followUpOverview.statistics.totalOrders));
-    for (const field of ["confirmedRevenue", "totalOrderValue", "returnedValue"]) {
+    for (const field of ["deliveredItemValue", "totalOrderValue", "returnedValue"]) {
       assert.equal(followUpOverview.statistics[field], undefined);
     }
-    assert.equal(followUpOverview.today.confirmedRevenue, undefined);
+    assert.equal(followUpOverview.today.deliveredItemValue, undefined);
     assert.equal(followUpOverview.today.returnedValue, undefined);
 
     const managerCharts = await dashboardHelper.getSalesCharts(manager, { days: 7 });
