@@ -178,7 +178,7 @@ export function Pager({
       }
     >
       <span>
-        {pagination?.total ?? pagination?.totalUsers ?? 0} records · Page {page}{" "}
+        {pagination?.total ?? 0} records · Page {page}{" "}
         of {pages}
       </span>
       <div>

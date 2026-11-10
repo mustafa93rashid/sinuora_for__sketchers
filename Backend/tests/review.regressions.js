@@ -75,6 +75,14 @@ module.exports = async (t, { server, admin, manager, seller, followUp, create, b
     assert.equal((await api(manager, "/users?search=%5B")).status, 200);
   });
 
+  await t.test("Users pagination matches the same shape as every other list endpoint", async () => {
+    const result = await api(manager, "/users?limit=5");
+    assert.equal(result.status, 200);
+    assert.deepEqual(Object.keys(result.data.pagination).sort(), ["hasNextPage", "hasPreviousPage", "limit", "page", "total", "totalPages"]);
+    assert.equal(result.data.pagination.currentPage, undefined);
+    assert.equal(result.data.pagination.totalUsers, undefined);
+  });
+
   await t.test("Inventory color filter is case-insensitive, matching the product-variant listing endpoint", async () => {
     const p = await newProduct();
     const v = await Variant.create({ product: p._id, color: "Black", size: 38 });

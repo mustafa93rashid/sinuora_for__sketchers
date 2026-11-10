@@ -187,7 +187,7 @@ export async function demoRequest(path: string, method: string) {
     return {
       success: true,
       data: [demoUser],
-      pagination: { currentPage: 1, totalUsers: 1, totalPages: 1 },
+      pagination: { page: 1, limit: 1, total: 1, totalPages: 1, hasNextPage: false, hasPreviousPage: false },
     };
   throw new Error("This view is unavailable in preview.");
 }

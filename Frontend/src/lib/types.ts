@@ -105,11 +105,12 @@ export interface Movement {
   order?: { _id: string; orderNumber: string } | string;
 }
 export interface Pagination {
-  page?: number;
-  currentPage?: number;
-  total?: number;
-  totalUsers?: number;
+  page: number;
+  limit: number;
+  total: number;
   totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 export interface Response<T> {
   success: boolean;

@@ -4,6 +4,7 @@ const { versionFilter, disconnectUser, sensitiveUnset } = require("../helpers/se
 const cookiesService = require("../utils/cookiesService");
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const { escapeRegex } = require("../helpers/search.helper");
+const { buildPaginationResponse } = require("../helpers/pagination.helper");
 const crypto = require("crypto");
 const User = require("../models/user.model");
 
@@ -171,12 +172,7 @@ class UserController {
     return res.status(200).json({
       success: true,
       results: users.length,
-      pagination: {
-        currentPage: pageNumber,
-        limit: limitNumber,
-        totalUsers,
-        totalPages: Math.ceil(totalUsers / limitNumber),
-      },
+      pagination: buildPaginationResponse(pageNumber, limitNumber, totalUsers),
       data: users,
     });
   };
