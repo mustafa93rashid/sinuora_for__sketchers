@@ -8,6 +8,7 @@ import {
   Clock,
   MapPin,
   Phone,
+  Search,
 } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { api, query, requestKey } from "../lib/api";
@@ -94,7 +95,8 @@ export function Orders() {
   const [search, setSearch] = useSearchParams();
   const page = Number(search.get("page")) || 1,
     status = search.get("status") || "",
-    createdBy = search.get("createdBy") || "";
+    createdBy = search.get("createdBy") || "",
+    searchTerm = search.get("search") || "";
   const { user } = useAuth();
   const users = useQuery({
     queryKey: ["users", "filter"],
@@ -102,10 +104,10 @@ export function Orders() {
     enabled: admin(user?.role),
   });
   const result = useQuery({
-    queryKey: ["orders", page, status, createdBy],
+    queryKey: ["orders", page, status, createdBy, searchTerm],
     queryFn: () =>
       api<{ orders: Order[] }>(
-        `/orders${query({ page, status, createdBy, limit: 15 })}`,
+        `/orders${query({ page, status, createdBy, search: searchTerm, limit: 15 })}`,
       ),
   });
   function set(k: string, v: string) {
@@ -173,6 +175,19 @@ export function Orders() {
               "filters flex gap-[8px] [&_select]:text-[11px] max-[768px]:w-full max-[768px]:flex-wrap max-[768px]:[&_select]:flex-1 max-[768px]:[&_select]:min-w-[130px]"
             }
           >
+            <label
+              className={
+                "search-field relative max-w-[220px] w-full [&_svg]:absolute [&_svg]:left-[11px] [&_svg]:top-[11px] [&_svg]:text-[#95aaa7] [&_input]:pl-[33px] [&_input]:text-[11px] max-[768px]:max-w-none"
+              }
+            >
+              <Search size={15} />
+              <input
+                aria-label="Search orders"
+                placeholder="Order #, customer, or phone…"
+                value={searchTerm}
+                onChange={(e) => set("search", e.target.value)}
+              />
+            </label>
             <select
               aria-label="Filter by status"
               value={status}
