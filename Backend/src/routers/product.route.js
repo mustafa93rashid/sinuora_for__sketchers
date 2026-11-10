@@ -3,12 +3,15 @@ const router = express.Router();
 
 const auth = require("../middlewares/auth");
 const role = require("../middlewares/role");
+const { generalApiLimiter } = require("../middlewares/limiter");
 const { uploadProductImages } = require("../middlewares/upload.middleware");
 const asyncHandler = require("../utils/asyncHandler");
 
 const productController = require("../controllers/product.controller");
 
 const {createProductValidation, updateProductValidation, productIdValidation,productImageValidation, getProductsValidation} = require("../validation/product.validation");
+
+router.use(generalApiLimiter);
 
 // ==================== Products ====================
 

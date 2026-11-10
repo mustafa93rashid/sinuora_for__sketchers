@@ -6,11 +6,15 @@ const auth = require("../middlewares/auth");
 
 const role = require("../middlewares/role");
 
+const { generalApiLimiter } = require("../middlewares/limiter");
+
 const asyncHandler = require("../utils/asyncHandler");
 
 const inventoryController = require("../controllers/inventory.controller");
 
 const { addStockValidation, adjustStockValidation, variantInventoryValidation, getInventoryValidation, getInventoryTransactionsValidation, getVariantTransactionsValidation } = require("../validation/inventory.validation");
+
+router.use(generalApiLimiter);
 
 // ==================== Inventory ====================
 

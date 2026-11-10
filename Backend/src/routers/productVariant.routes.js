@@ -6,11 +6,15 @@ const auth = require("../middlewares/auth");
 
 const role = require("../middlewares/role");
 
+const { generalApiLimiter } = require("../middlewares/limiter");
+
 const asyncHandler = require("../utils/asyncHandler");
 
 const productVariantController = require("../controllers/productVariant.controller");
 
 const { createProductVariantValidation, updateProductVariantValidation, productVariantIdValidation, productIdValidation, getProductVariantsValidation } = require("../validation/productVariant.validation");
+
+router.use(generalApiLimiter);
 
 // ==================== Product Variants ====================
 

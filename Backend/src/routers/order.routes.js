@@ -4,6 +4,7 @@ const router = express.Router();
 
 const auth = require("../middlewares/auth");
 const role = require("../middlewares/role");
+const { generalApiLimiter } = require("../middlewares/limiter");
 const asyncHandler = require("../utils/asyncHandler");
 
 const orderController = require("../controllers/order.controller");
@@ -17,6 +18,8 @@ const {
   returnOrderValidation,
   getOrdersValidation,
 } = require("../validation/order.validation");
+
+router.use(generalApiLimiter);
 
 // ==================== Orders ====================
 
