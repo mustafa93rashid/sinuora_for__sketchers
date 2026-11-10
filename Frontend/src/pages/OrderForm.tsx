@@ -61,7 +61,8 @@ export default function OrderForm() {
     [selected, setSelected] = useState(""),
     [error, setError] = useState<unknown>(null),
     [key] = useState(() => requestKey()),
-    [labels, setLabels] = useState<Record<string, string>>({});
+    [labels, setLabels] = useState<Record<string, string>>({}),
+    [availableStock, setAvailableStock] = useState<Record<string, number>>({});
   const form = useForm<Values>({
     resolver: zodResolver(orderSchema),
     defaultValues: {
@@ -151,16 +152,18 @@ export default function OrderForm() {
       p = products.data?.data.products.find((p) => p._id === productId);
     if (!v || !p) return;
     const index = values.items.findIndex((i) => i.variant === v._id);
+    const max = available(v);
     if (index >= 0)
       update(index, {
         ...values.items[index],
-        quantity: values.items[index].quantity + 1,
+        quantity: Math.min(values.items[index].quantity + 1, max),
       });
     else append({ variant: v._id, quantity: 1, unitPrice: p.defaultSalePrice });
     setLabels((prev) => ({
       ...prev,
       [v._id]: `${p.name} · ${v.color} · EU ${v.size}`,
     }));
+    setAvailableStock((prev) => ({ ...prev, [v._id]: available(v) }));
   }
   return (
     <>
@@ -381,10 +384,18 @@ export default function OrderForm() {
                           type="number"
                           min="1"
                           step="1"
+                          max={availableStock[field.variant]}
                           {...form.register(`items.${index}.quantity`, {
                             valueAsNumber: true,
                           })}
                         />
+                        {availableStock[field.variant] !== undefined &&
+                          values.items[index]?.quantity >
+                            availableStock[field.variant] && (
+                            <small className="text-[#b45309]">
+                              Only {availableStock[field.variant]} in stock
+                            </small>
+                          )}
                       </label>
                       <label
                         className={
