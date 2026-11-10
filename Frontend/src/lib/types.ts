@@ -112,6 +112,51 @@ export interface Pagination {
   hasNextPage: boolean;
   hasPreviousPage: boolean;
 }
+export interface DashboardStatistics {
+  totalOrders: number;
+  newOrders: number;
+  preparingOrders: number;
+  preparedOrders: number;
+  outForDeliveryOrders: number;
+  deliveredOrders: number;
+  returnedOrders: number;
+  partiallyReturnedOrders: number;
+  cancelledOrders: number;
+  returnRate: number;
+  // Stripped by the backend for the follow-up role (audit finding H-1) -
+  // only superadmin/manager/saler receive these.
+  deliveredItemValue?: number;
+  totalOrderValue?: number;
+  returnedValue?: number;
+}
+export interface DashboardOverview {
+  statistics: DashboardStatistics;
+  today: { orders: number; deliveredItemValue?: number; returnedValue?: number };
+  inventory: { lowStockVariants: number; outOfStockVariants: number } | null;
+  period: { from: string | null; to: string | null; basis: string; timezone: string };
+}
+export interface DailySales {
+  date: string;
+  orders: number;
+  soldQuantity: number;
+  returnedQuantity: number;
+  revenue?: number;
+  returnedValue?: number;
+}
+export interface TopSalesRow {
+  _id: { product: string; name: string; modelCode: string } | string | number;
+  soldQuantity: number;
+  returnedQuantity: number;
+  revenue?: number;
+}
+export interface SalesCharts {
+  period: { from: string; to: string; days: number; basis: string; timezone: string };
+  summary: { orders: number; soldQuantity: number; returnedQuantity: number; revenue?: number; returnedValue?: number };
+  dailySales: DailySales[];
+  topModels: TopSalesRow[];
+  topColors: TopSalesRow[];
+  topSizes: TopSalesRow[];
+}
 export interface Response<T> {
   success: boolean;
   data: T;

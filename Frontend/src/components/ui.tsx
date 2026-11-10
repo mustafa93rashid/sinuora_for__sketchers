@@ -378,3 +378,89 @@ export function FieldsForm({
     </form>
   );
 }
+export function BarChart({
+  data,
+  valueLabel,
+  formatValue = String,
+}: {
+  data: { label: string; value: number }[];
+  valueLabel: string;
+  formatValue?: (value: number) => string;
+}) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  return (
+    <div
+      role="img"
+      aria-label={`${valueLabel} by day: ${data
+        .map((d) => `${d.label} ${formatValue(d.value)}`)
+        .join(", ")}`}
+      className={
+        "bar-chart flex items-end gap-[3px] h-[110px] [padding:4px_2px_0]"
+      }
+    >
+      {data.map((d) => (
+        <div
+          key={d.label}
+          title={`${d.label}: ${formatValue(d.value)}`}
+          className={
+            "flex-1 min-w-[3px] bg-primary rounded-t-[4px] [transition:height_.2s]"
+          }
+          style={{
+            height: `${Math.max((d.value / max) * 100, d.value > 0 ? 4 : 1)}%`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+export function RankedList({
+  rows,
+  emptyLabel,
+  formatValue = String,
+}: {
+  rows: { label: string; value: number }[];
+  emptyLabel: string;
+  formatValue?: (value: number) => string;
+}) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  if (!rows.length)
+    return (
+      <Empty title={`No ${emptyLabel} yet`} description="Nothing sold in this period." />
+    );
+  return (
+    <ul className={"ranked-list flex flex-col gap-[10px]"}>
+      {rows.map((r) => (
+        <li
+          key={r.label}
+          className={"flex items-center gap-[10px] text-[11px]"}
+        >
+          <span
+            className={
+              "w-[150px] shrink-0 truncate text-[#466a66] font-medium"
+            }
+            title={r.label}
+          >
+            {r.label}
+          </span>
+          <span
+            className={
+              "flex-1 h-[8px] bg-[#f0f3f3] rounded-[4px] overflow-hidden"
+            }
+          >
+            <span
+              className={"block h-full bg-primary rounded-[4px]"}
+              style={{ width: `${(r.value / max) * 100}%` }}
+            />
+          </span>
+          <span
+            className={
+              "w-[42px] text-right tabular-nums text-muted-foreground"
+            }
+          >
+            {formatValue(r.value)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
