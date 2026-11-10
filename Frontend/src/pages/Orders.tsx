@@ -538,7 +538,12 @@ export function OrderDetail() {
               body,
               key: action === "returns" ? key(body) : undefined,
             });
-            await cache.invalidateQueries();
+            await Promise.all([
+              cache.invalidateQueries({ queryKey: ["orders"] }),
+              cache.invalidateQueries({ queryKey: ["order", id] }),
+              cache.invalidateQueries({ queryKey: ["inventory"] }),
+              cache.invalidateQueries({ queryKey: ["overview"] }),
+            ]);
             setAction("");
           }}
         >

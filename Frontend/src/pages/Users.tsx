@@ -29,7 +29,7 @@ export default function Users() {
     queryFn: () => api<User[]>(`/users${query({ page, search, limit: 15 })}`),
   });
   const done = () => {
-    void cache.invalidateQueries();
+    void cache.invalidateQueries({ queryKey: ["users"] });
     setModal("");
   };
   return (
@@ -69,7 +69,7 @@ export default function Users() {
         {result.isPending ? (
           <Loading />
         ) : result.error ? (
-          <ErrorBox error={result.error} />
+          <ErrorBox error={result.error} retry={() => void result.refetch()} />
         ) : (
           <>
             <DataTable

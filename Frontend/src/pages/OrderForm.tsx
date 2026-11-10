@@ -189,7 +189,12 @@ export default function OrderForm() {
                 key: id ? undefined : key(values),
               },
             );
-            await cache.invalidateQueries();
+            await Promise.all([
+              cache.invalidateQueries({ queryKey: ["orders"] }),
+              cache.invalidateQueries({ queryKey: ["order", id] }),
+              cache.invalidateQueries({ queryKey: ["inventory"] }),
+              cache.invalidateQueries({ queryKey: ["overview"] }),
+            ]);
             navigate(`/orders/${r.data.order._id}`);
           } catch (e) {
             setError(e);

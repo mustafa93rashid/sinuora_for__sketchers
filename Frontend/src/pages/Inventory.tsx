@@ -305,7 +305,11 @@ export function Inventory() {
                   }),
                 },
               );
-              await cache.invalidateQueries();
+              await Promise.all([
+                cache.invalidateQueries({ queryKey: ["inventory"] }),
+                cache.invalidateQueries({ queryKey: ["movements"] }),
+                cache.invalidateQueries({ queryKey: ["overview"] }),
+              ]);
               setSelection(null);
             }}
           />
@@ -365,7 +369,7 @@ export function Movements() {
         {result.isPending ? (
           <Loading />
         ) : result.error ? (
-          <ErrorBox error={result.error} />
+          <ErrorBox error={result.error} retry={() => void result.refetch()} />
         ) : (
           <>
             <DataTable

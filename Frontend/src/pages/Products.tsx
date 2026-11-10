@@ -254,7 +254,7 @@ export function Products() {
       <Modal title="Add a product" open={open} onOpenChange={setOpen}>
         <ProductEditor
           done={() => {
-            void cache.invalidateQueries();
+            void cache.invalidateQueries({ queryKey: ["products"] });
             setOpen(false);
           }}
         />
@@ -278,7 +278,9 @@ export function ProductDetail() {
   if (result.error) return <ErrorBox error={result.error} />;
   const { product: p, variants } = result.data.data;
   const done = () => {
-    void cache.invalidateQueries();
+    void cache.invalidateQueries({ queryKey: ["product", id] });
+    void cache.invalidateQueries({ queryKey: ["products"] });
+    void cache.invalidateQueries({ queryKey: ["variants", id] });
     setModal("");
     setVariant(null);
   };
