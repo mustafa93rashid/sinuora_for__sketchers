@@ -29,8 +29,15 @@ const createLimiter = ({
 // (300 requests / 15 min = ~1 every 3 seconds sustained) adds a
 // backstop against a runaway script or compromised session without
 // affecting legitimate use of an internal tool.
+//
+// A factory, not a shared singleton: every route this is mounted on
+// already requires auth, so each router applies auth first via
+// router.use(auth) and only then its own createGeneralApiLimiter()
+// instance - unauthenticated requests are rejected before they can
+// consume any budget, and each router gets its own independent budget
+// instead of all five sharing one global counter.
 
-const generalApiLimiter = createLimiter({
+const createGeneralApiLimiter = () => createLimiter({
   windowMs: 15 * 60 * 1000,
   limit: 300,
   message: "Too many requests. Please slow down and try again shortly.",
@@ -109,7 +116,7 @@ const activationLimiter = createLimiter({ windowMs: 15 * 60 * 1000, limit: 10, m
 module.exports = {
   activationLimiter,
   signinLimiter,
-  generalApiLimiter,
+  createGeneralApiLimiter,
   passwordChangeRequestLimiter,
   passwordChangeVerifyLimiter,
   emailChangeRequestLimiter,
