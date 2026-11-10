@@ -440,5 +440,30 @@ test("Orders on an isolated MongoDB replica set", { skip: !process.env.MONGOD_BI
     assert.ok(Number.isInteger(ok.statistics.totalOrders));
   });
 
+  await t.test("Orders can be searched by order number, customer name, or phone", async () => {
+    const v = await variant(5);
+    const alice = await request(seller, "", "POST", {
+      customer: { name: "Alice Johnson", phone: "07701234567", address: "Baghdad" },
+      items: [{ variant: String(v._id), quantity: 1, unitPrice: 100 }],
+    }, "search-alice");
+    const bob = await request(seller, "", "POST", {
+      customer: { name: "Bob Smith", phone: "07709999999", address: "Baghdad" },
+      items: [{ variant: String(v._id), quantity: 1, unitPrice: 100 }],
+    }, "search-bob");
+    assert.equal(alice.status, 201, JSON.stringify(alice));
+    assert.equal(bob.status, 201, JSON.stringify(bob));
+    const aliceOrderNumber = alice.data.data.order.orderNumber;
+
+    const byNumber = await request(seller, `?search=${aliceOrderNumber.slice(4, 10).toLowerCase()}`, "GET");
+    assert.ok(byNumber.data.data.orders.some((o) => o.orderNumber === aliceOrderNumber));
+
+    const byName = await request(seller, "?search=alice", "GET");
+    assert.ok(byName.data.data.orders.some((o) => o.customer.name === "Alice Johnson"));
+    assert.ok(!byName.data.data.orders.some((o) => o.customer.name === "Bob Smith"));
+
+    const byPhone = await request(seller, "?search=07709999999", "GET");
+    assert.ok(byPhone.data.data.orders.some((o) => o.customer.name === "Bob Smith"));
+  });
+
   await require("./review.regressions")(t, { server, admin, manager, seller, followUp, create, body, variant, dispatched, returning });
 });

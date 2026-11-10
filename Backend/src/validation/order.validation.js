@@ -25,6 +25,7 @@ const getOrdersValidation = [
   query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
   query("createdBy").optional().isMongoId(),
   query("status").optional().isIn(["New", "Preparing", "Prepared", "Out For Delivery", "Delivered", "Returned", "Partially Returned", "Cancelled"]),
+  query("search").optional().isString().trim().isLength({ max: 100 }),
   validate,
 ];
 

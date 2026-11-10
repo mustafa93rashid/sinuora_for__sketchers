@@ -3,6 +3,7 @@ const OrderStatusHistory = require("../models/orderStatusHistory.model");
 
 const orderHelper = require("../helpers/order.helper");
 const { buildPagination, buildPaginationResponse } = require("../helpers/pagination.helper");
+const { escapeRegex } = require("../helpers/search.helper");
 
 // ==================== Order Controller ====================
 
@@ -19,12 +20,22 @@ class OrderController {
   // ==================== Get Orders ====================
 
   getOrders = async (req, res) => {
-    const { page = 1, limit = 20, status, createdBy } = (req.validatedQuery || {});
+    const { page = 1, limit = 20, status, createdBy, search } = (req.validatedQuery || {});
 
     const filters = {};
 
     if (status) filters.status = status;
     if (createdBy) filters.createdBy = createdBy;
+
+    if (search) {
+      const pattern = escapeRegex(search);
+
+      filters.$or = [
+        { orderNumber: { $regex: pattern, $options: "i" } },
+        { "customer.name": { $regex: pattern, $options: "i" } },
+        { "customer.phone": { $regex: pattern } },
+      ];
+    }
 
     const filter = { $and: [orderHelper.scope(req.user), filters] };
     const { skip } = buildPagination(page, limit);
