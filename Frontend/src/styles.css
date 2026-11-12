@@ -3,7 +3,7 @@
   --color-primary: #007478;
   --color-background: #f7f9fa;
   --color-foreground: #213335;
-  --color-muted-foreground: #788789;
+  --color-muted-foreground: #5f6f71;
   --font-sans: "Segoe UI", Arial, sans-serif;
   --breakpoint-tablet: 48rem;
   --breakpoint-desktop: 75rem;
@@ -18,7 +18,7 @@
     font-size: 14px;
     --primary: #007478;
     --border: #e5ebeb;
-    --muted: #788789;
+    --muted: #5f6f71;
     --radius: 12px;
     --sidebar: 244px;
   }

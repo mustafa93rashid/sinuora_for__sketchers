@@ -102,17 +102,35 @@ export function PageTitle({
     </div>
   );
 }
-export function Loading() {
+// Shared wrapper for every centered loading/empty/error-boundary state
+// panel - previously this exact class string was hand-copied in four
+// places (Loading and Empty here, plus the ErrorBoundary fallback and
+// the 404 route in main.tsx), risking drift between them (audit
+// finding M-11).
+export function StateBlock({
+  children,
+  role,
+}: {
+  children: ReactNode;
+  role?: string;
+}) {
   return (
     <div
       className={
-        "state flex flex-col items-center justify-center text-center [padding:50px_20px] min-h-[220px] text-[#829b98] [&_h3]:[margin:15px_0_7px] [&_h3]:text-[#3b6662] [&_p]:text-[12px] [&_p]:max-w-[350px] [&_p]:[margin:12px_0]"
+        "state flex flex-col items-center justify-center text-center [padding:50px_20px] min-h-[220px] text-[#5f6f71] [&_h3]:[margin:15px_0_7px] [&_h3]:text-[#3b6662] [&_p]:text-[12px] [&_p]:max-w-[350px] [&_p]:[margin:12px_0]"
       }
-      role="status"
+      role={role}
     >
+      {children}
+    </div>
+  );
+}
+export function Loading() {
+  return (
+    <StateBlock role="status">
       <LoaderCircle className={"spin animate-spin"} />
       <p>Loading your workspace…</p>
-    </div>
+    </StateBlock>
   );
 }
 export function ErrorBox({
@@ -149,16 +167,12 @@ export function Empty({
   action?: ReactNode;
 }) {
   return (
-    <div
-      className={
-        "state flex flex-col items-center justify-center text-center [padding:50px_20px] min-h-[220px] text-[#829b98] [&_h3]:[margin:15px_0_7px] [&_h3]:text-[#3b6662] [&_p]:text-[12px] [&_p]:max-w-[350px] [&_p]:[margin:12px_0]"
-      }
-    >
+    <StateBlock>
       <PackageOpen size={32} />
       <h3>{title}</h3>
       <p className={"muted text-muted-foreground font-normal"}>{description}</p>
       {action}
-    </div>
+    </StateBlock>
   );
 }
 export function Pager({

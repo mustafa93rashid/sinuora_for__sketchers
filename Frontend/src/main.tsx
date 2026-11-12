@@ -6,7 +6,7 @@ import { AuthProvider, useAuth } from "./lib/auth";
 import { admin } from "./lib/utils";
 import { ApiError } from "./lib/api";
 import Layout from "./components/Layout";
-import { Loading, ErrorBox, Button } from "./components/ui";
+import { Loading, Button, StateBlock } from "./components/ui";
 import Auth from "./pages/Auth";
 import "./styles.css";
 const Overview = lazy(() => import("./pages/Overview")),
@@ -55,11 +55,12 @@ function Protected() {
 }
 function AdminOnly({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  return admin(user?.role) ? (
-    children
-  ) : (
-    <ErrorBox error="You do not have access to this page." />
-  );
+  // Previously rendered an inline ErrorBox, leaving the restricted
+  // route "entered" (breadcrumb/layout visible) for any authenticated
+  // user who navigated here directly, just with its body swapped out -
+  // inconsistent with how Protected() handles unauthorized access
+  // (redirect). Redirect here too (audit finding L-17).
+  return admin(user?.role) ? children : <Navigate to="/" replace />;
 }
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -71,17 +72,13 @@ class ErrorBoundary extends React.Component<
   }
   render() {
     return this.state.failed ? (
-      <div
-        className={
-          "state flex flex-col items-center justify-center text-center [padding:50px_20px] min-h-[220px] text-[#829b98] [&_h3]:[margin:15px_0_7px] [&_h3]:text-[#3b6662] [&_p]:text-[12px] [&_p]:max-w-[350px] [&_p]:[margin:12px_0]"
-        }
-      >
+      <StateBlock>
         <h1>Something went wrong.</h1>
         <p>Your saved server data has not been changed.</p>
         <Button onClick={() => window.location.reload()}>
           Reload workspace
         </Button>
-      </div>
+      </StateBlock>
     ) : (
       this.props.children
     );
@@ -141,14 +138,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                   <Route
                     path="*"
                     element={
-                      <div
-                        className={
-                          "state flex flex-col items-center justify-center text-center [padding:50px_20px] min-h-[220px] text-[#829b98] [&_h3]:[margin:15px_0_7px] [&_h3]:text-[#3b6662] [&_p]:text-[12px] [&_p]:max-w-[350px] [&_p]:[margin:12px_0]"
-                        }
-                      >
+                      <StateBlock>
                         <h1>Page not found</h1>
                         <a href="/">Return to overview</a>
-                      </div>
+                      </StateBlock>
                     }
                   />
                 </Route>
