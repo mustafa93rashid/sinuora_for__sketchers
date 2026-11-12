@@ -8,7 +8,7 @@
     "watch": "nodemon ./src/app.js",
     "seed:superadmin": "node src/superAdmin.seed.js",
     "test:orders": "node scripts/run-integration.js",
-    "test": "node --test tests/orders.unit.test.js tests/security.unit.test.js tests/resolve-mongod.unit.test.js tests/loginAnomaly.unit.test.js tests/errorHandler.unit.test.js tests/productSizes.unit.test.js tests/generalApiLimiter.unit.test.js tests/dashboardHelper.unit.test.js tests/verificationCodeService.unit.test.js tests/searchHelper.unit.test.js tests/paginationHelper.unit.test.js",
+    "test": "node --test tests/orders.unit.test.js tests/security.unit.test.js tests/resolve-mongod.unit.test.js tests/loginAnomaly.unit.test.js tests/errorHandler.unit.test.js tests/productSizes.unit.test.js tests/generalApiLimiter.unit.test.js tests/dashboardHelper.unit.test.js tests/verificationCodeService.unit.test.js tests/searchHelper.unit.test.js tests/paginationHelper.unit.test.js tests/inventoryHelper.unit.test.js",
     "test:integration": "node scripts/run-integration.js"
   },
   "keywords": [],
