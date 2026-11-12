@@ -73,6 +73,7 @@ export function Inventory() {
             <select
               value={filter.product}
               onChange={(e) => set("product", e.target.value)}
+              disabled={products.isError}
             >
               <option value="">All products</option>
               {products.data?.data.products.map((p) => (
@@ -81,6 +82,18 @@ export function Inventory() {
                 </option>
               ))}
             </select>
+            {products.isError && (
+              <small className={"text-[#a24b43]"}>
+                Couldn’t load the product list.{" "}
+                <button
+                  type="button"
+                  className={"text-link text-primary font-semibold"}
+                  onClick={() => void products.refetch()}
+                >
+                  Retry
+                </button>
+              </small>
+            )}
           </label>
           <label
             className={

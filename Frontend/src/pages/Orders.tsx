@@ -203,18 +203,33 @@ export function Orders() {
                 ))}
             </select>
             {admin(user?.role) && (
-              <select
-                aria-label="Filter by team member"
-                value={createdBy}
-                onChange={(e) => set("createdBy", e.target.value)}
-              >
-                <option value="">All team members</option>
-                {users.data?.data.map((u) => (
-                  <option key={u._id} value={u._id}>
-                    {u.fullName}
-                  </option>
-                ))}
-              </select>
+              <span>
+                <select
+                  aria-label="Filter by team member"
+                  value={createdBy}
+                  onChange={(e) => set("createdBy", e.target.value)}
+                  disabled={users.isError}
+                >
+                  <option value="">All team members</option>
+                  {users.data?.data.map((u) => (
+                    <option key={u._id} value={u._id}>
+                      {u.fullName}
+                    </option>
+                  ))}
+                </select>
+                {users.isError && (
+                  <small className={"block text-[#a24b43]"}>
+                    Couldn’t load team members.{" "}
+                    <button
+                      type="button"
+                      className={"text-link text-primary font-semibold"}
+                      onClick={() => void users.refetch()}
+                    >
+                      Retry
+                    </button>
+                  </small>
+                )}
+              </span>
             )}
           </div>
         </div>
