@@ -62,6 +62,37 @@ test("Pricing policy enforcement blocks non-admin roles and records an exception
   assert.deepEqual(helper.enforcePricingPolicy({ user: { role: "superadmin" }, reasons: [] }), { exception: false, reasons: [] });
 });
 
+test("Order scope restricts follow-up to post-preparation statuses and denies unknown roles entirely", () => {
+  assert.deepEqual(helper.scope({ role: "follow-up" }), { status: { $in: ["Prepared", "Out For Delivery", "Delivered", "Returned", "Partially Returned"] } });
+  assert.deepEqual(helper.scope({ role: "unknown" }), { _id: { $in: [] } });
+  assert.deepEqual(helper.scope(undefined), { _id: { $in: [] } });
+});
+
+test("Serialize strips idempotency internals for every role, and cost/price-exception fields for non-admins only", () => {
+  const raw = () => ({
+    idempotencyKey: "key-1", idempotencyHash: "hash-1", priceException: true, priceExceptionReasons: ["below_cost"],
+    items: [{ unitCost: 50, totalCost: 150, priceException: true, priceExceptionReasons: ["below_cost"], unitPrice: 100 }],
+  });
+
+  const forSaler = helper.serialize(raw(), { role: "saler" });
+  assert.equal(forSaler.idempotencyKey, undefined);
+  assert.equal(forSaler.idempotencyHash, undefined);
+  assert.equal(forSaler.priceException, undefined);
+  assert.equal(forSaler.priceExceptionReasons, undefined);
+  assert.equal(forSaler.items[0].unitCost, undefined);
+  assert.equal(forSaler.items[0].totalCost, undefined);
+  assert.equal(forSaler.items[0].priceException, undefined);
+  assert.equal(forSaler.items[0].unitPrice, 100); // non-cost fields survive
+
+  const forManager = helper.serialize(raw(), { role: "manager" });
+  assert.equal(forManager.idempotencyKey, undefined); // always stripped, even for admins
+  assert.equal(forManager.priceException, true);
+  assert.equal(forManager.items[0].unitCost, 50);
+  assert.equal(forManager.items[0].priceExceptionReasons[0], "below_cost");
+
+  assert.equal(helper.serialize(null), null);
+});
+
 test("Order model rejects quantities and amounts that cannot be represented safely", async () => {
   const order = new Order({ orderNumber: "TEST", customer: body().customer, createdBy: id, subtotal: 100, totalAmount: 100,
     items: [{ variant: id, product: id, quantity: 1, unitPrice: 100, totalPrice: 100, dispatchedQuantity: 1, returnedQuantity: 1, deliveredQuantity: 1, productSnapshot: { name: "Shoe", color: "Black", size: 38 } }] });
