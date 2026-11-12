@@ -32,7 +32,10 @@ import {
   Empty,
   BarChart,
   RankedList,
+  PANEL_CLASS,
+  PANEL_HEADING_CLASS,
 } from "../components/ui";
+import { cn } from "../lib/utils";
 import { OrderTable } from "./Orders";
 const statusField: Record<string, keyof DashboardStatistics> = {
   New: "newOrders",
@@ -250,16 +253,8 @@ export default function Overview() {
           "overview-grid grid [grid-template-columns:minmax(0,_2.12fr)_minmax(260px,_1fr)] gap-[23px] [&_.panel]:mb-0 min-[1600px]:[grid-template-columns:minmax(0,_2.4fr)_340px] min-[768px]:max-[1200px]:grid-cols-[1fr] max-[768px]:grid-cols-[1fr] max-[768px]:gap-[19px]"
         }
       >
-        <section
-          className={
-            "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px]"
-          }
-        >
-          <div
-            className={
-              "panel-heading flex items-center justify-between gap-[12px] [padding:24px_23px_19px] [&_h2]:text-[16px] [&_h2]:mb-[5px] [&_p]:text-[10px] [&_p]:mb-0 [&_.text-link]:text-[10px] [&_.text-link]:whitespace-nowrap max-[768px]:[padding:20px_17px_17px] max-[768px]:[&_h2]:text-[16px] max-[768px]:[&_p]:text-[10px] max-[768px]:[&_.text-link]:text-[10px]"
-            }
-          >
+        <section className={PANEL_CLASS}>
+          <div className={PANEL_HEADING_CLASS}>
             <div>
               <h2>Recent orders</h2>
               <p className={"muted text-muted-foreground font-normal"}>
@@ -284,15 +279,12 @@ export default function Overview() {
           )}
         </section>
         <section
-          className={
-            "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] stock-watch [padding:0_21px_20px] [&_.panel-heading]:[padding:23px_0_0] [&>.muted]:text-[10px] [&>.muted]:[margin:9px_0_17px] [&_.eyebrow]:text-[8px] [&_.eyebrow]:mb-[7px] [&>.btn]:mt-[20px] [&>.btn]:text-[10px] [&>.btn]:min-h-[36px] min-[768px]:max-[1200px]:block"
-          }
+          className={cn(
+            PANEL_CLASS,
+            "stock-watch [padding:0_21px_20px] [&_.panel-heading]:[padding:23px_0_0] [&>.muted]:text-[10px] [&>.muted]:[margin:9px_0_17px] [&_.eyebrow]:text-[8px] [&_.eyebrow]:mb-[7px] [&>.btn]:mt-[20px] [&>.btn]:text-[10px] [&>.btn]:min-h-[36px] min-[768px]:max-[1200px]:block",
+          )}
         >
-          <div
-            className={
-              "panel-heading flex items-center justify-between gap-[12px] [padding:24px_23px_19px] [&_h2]:text-[16px] [&_h2]:mb-[5px] [&_p]:text-[10px] [&_p]:mb-0 [&_.text-link]:text-[10px] [&_.text-link]:whitespace-nowrap max-[768px]:[padding:20px_17px_17px] max-[768px]:[&_h2]:text-[16px] max-[768px]:[&_p]:text-[10px] max-[768px]:[&_.text-link]:text-[10px]"
-            }
-          >
+          <div className={PANEL_HEADING_CLASS}>
             <div>
               <p
                 className={
@@ -366,11 +358,7 @@ export default function Overview() {
           </Button>
         </section>
       </div>
-      <section
-        className={
-          "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px]"
-        }
-      >
+      <section className={PANEL_CLASS}>
         <div
           className={
             "panel-heading flex items-center justify-between gap-[12px] [padding:24px_23px_19px] [&_h2]:text-[16px] [&_h2]:mb-[5px] [&_p]:text-[10px] [&_p]:mb-0 max-[768px]:[padding:20px_17px_17px] max-[768px]:flex-col max-[768px]:items-start max-[768px]:gap-[10px]"

@@ -25,6 +25,14 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { Pagination } from "../lib/types";
+export const PANEL_CLASS =
+  "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px]";
+export const PANEL_PADDED_CLASS = cn(
+  PANEL_CLASS,
+  "padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]",
+);
+export const PANEL_HEADING_CLASS =
+  "panel-heading flex items-center justify-between gap-[12px] [padding:24px_23px_19px] [&_h2]:text-[16px] [&_h2]:mb-[5px] [&_p]:text-[10px] [&_p]:mb-0 [&_.text-link]:text-[10px] [&_.text-link]:whitespace-nowrap max-[768px]:[padding:20px_17px_17px] max-[768px]:[&_h2]:text-[16px] max-[768px]:[&_p]:text-[10px] max-[768px]:[&_.text-link]:text-[10px]";
 const buttonVariants = cva(
   "btn inline-flex items-center justify-center gap-[9px] min-h-[42px] [padding:10px_16px] [border:1px_solid_transparent] rounded-[8px] text-[12px] font-semibold whitespace-nowrap [transition:background_.15s,_box-shadow_.15s] max-[768px]:min-h-[44px]",
   {

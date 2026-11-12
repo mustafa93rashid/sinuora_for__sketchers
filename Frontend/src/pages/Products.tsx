@@ -24,6 +24,9 @@ import {
   FieldsForm,
   Empty,
   type FieldSpec,
+  PANEL_CLASS,
+  PANEL_PADDED_CLASS,
+  PANEL_HEADING_CLASS,
 } from "../components/ui";
 import { DataTable } from "../components/DataTable";
 const sizes = Array.from({ length: 13 }, (_, i) => 36 + i * 0.5);
@@ -320,11 +323,7 @@ export function ProductDetail() {
         }
       >
         <div>
-          <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-            }
-          >
+          <section className={PANEL_PADDED_CLASS}>
             <div
               className={
                 "product-gallery flex gap-[12px] overflow-auto mb-[25px] [&>div]:relative [&>div]:flex-1 [&>div]:min-w-[180px] [&_img]:w-full [&_img]:h-[230px] [&_img]:object-contain [&_img]:bg-[#f6f9f7] [&_img]:rounded-[8px] [&_.btn]:absolute [&_.btn]:top-[5px] [&_.btn]:right-[5px] [&_.btn]:bg-white [&_.product-art]:min-h-[240px] [&_.product-art]:rounded-[8px] [&_.product-art]:gap-[20px] [&_span]:text-[11px] max-[768px]:[&_img]:h-[180px] max-[768px]:[&>div]:min-w-[150px]"
@@ -364,16 +363,8 @@ export function ProductDetail() {
               {p.description || "No description added."}
             </p>
           </section>
-          <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px]"
-            }
-          >
-            <div
-              className={
-                "panel-heading flex items-center justify-between gap-[12px] [padding:24px_23px_19px] [&_h2]:text-[16px] [&_h2]:mb-[5px] [&_p]:text-[10px] [&_p]:mb-0 [&_.text-link]:text-[10px] [&_.text-link]:whitespace-nowrap max-[768px]:[padding:20px_17px_17px] max-[768px]:[&_h2]:text-[16px] max-[768px]:[&_p]:text-[10px] max-[768px]:[&_.text-link]:text-[10px]"
-              }
-            >
+          <section className={PANEL_CLASS}>
+            <div className={PANEL_HEADING_CLASS}>
               <div>
                 <h2>Colors & sizes</h2>
                 <p className={"muted text-muted-foreground font-normal"}>
@@ -458,11 +449,7 @@ export function ProductDetail() {
           </section>
         </div>
         <aside>
-          <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-            }
-          >
+          <section className={PANEL_PADDED_CLASS}>
             <p
               className={
                 "eyebrow text-[10px] tracking-[1.8px] font-bold text-primary mb-[12px] max-[768px]:text-[9px]"

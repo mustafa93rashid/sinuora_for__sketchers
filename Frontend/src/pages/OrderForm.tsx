@@ -7,9 +7,15 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { api, query, requestKey } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { actionsFor, available, money } from "../lib/utils";
+import { actionsFor, available, money, cn } from "../lib/utils";
 import type { Order, Product, Variant } from "../lib/types";
-import { Button, PageTitle, ErrorBox, Loading } from "../components/ui";
+import {
+  Button,
+  PageTitle,
+  ErrorBox,
+  Loading,
+  PANEL_PADDED_CLASS,
+} from "../components/ui";
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const orderSchema = z
   .object({
@@ -211,9 +217,7 @@ export default function OrderForm() {
         >
           <div>
             <section
-              className={
-                "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-              }
+              className={PANEL_PADDED_CLASS}
             >
               <h2>
                 <span
@@ -265,9 +269,7 @@ export default function OrderForm() {
               </div>
             </section>
             <section
-              className={
-                "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-              }
+              className={PANEL_PADDED_CLASS}
             >
               <h2>
                 <span
@@ -439,9 +441,7 @@ export default function OrderForm() {
               )}
             </section>
             <section
-              className={
-                "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-              }
+              className={PANEL_PADDED_CLASS}
             >
               <h2>
                 <span
@@ -470,9 +470,10 @@ export default function OrderForm() {
           </div>
           <aside>
             <section
-              className={
-                "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px] sticky-summary sticky top-[24px] [&_.totals_.field]:mb-[15px] min-[768px]:max-[1200px]:[position:static] max-[768px]:[position:static]"
-              }
+              className={cn(
+                PANEL_PADDED_CLASS,
+                "sticky-summary sticky top-[24px] [&_.totals_.field]:mb-[15px] min-[768px]:max-[1200px]:[position:static] max-[768px]:[position:static]",
+              )}
             >
               <div
                 className={

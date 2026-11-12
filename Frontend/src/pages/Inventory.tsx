@@ -14,6 +14,7 @@ import {
   Modal,
   FieldsForm,
   Badge,
+  PANEL_CLASS,
 } from "../components/ui";
 import { DataTable } from "../components/DataTable";
 export function Inventory() {
@@ -57,11 +58,7 @@ export function Inventory() {
         title="Inventory"
         description="Know what’s available. Keep your collection moving."
       />
-      <section
-        className={
-          "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px]"
-        }
-      >
+      <section className={PANEL_CLASS}>
         <div
           className={
             "toolbar [padding:18px_21px] [border-bottom:1px_solid_var(--border)] flex items-center justify-between gap-[15px] flex-wrap [&>input]:max-w-[350px] [&_select]:text-[11px] max-[768px]:[padding:14px] max-[768px]:gap-[15px] max-[768px]:items-stretch inventory-filters grid [grid-template-columns:1.5fr_1fr_.8fr_1fr_.8fr] [&_.field>span]:text-[10px] min-[768px]:max-[1200px]:grid-cols-[repeat(3,_1fr)] max-[768px]:grid max-[768px]:[grid-template-columns:1fr_1fr] max-[768px]:[&_.field:first-child]:col-span-2"
@@ -335,11 +332,7 @@ export function Movements() {
         title="Stock movements"
         description="A traceable history of every inventory change."
       />
-      <section
-        className={
-          "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px]"
-        }
-      >
+      <section className={PANEL_CLASS}>
         <div
           className={
             "toolbar [padding:18px_21px] [border-bottom:1px_solid_var(--border)] flex items-center justify-between gap-[15px] flex-wrap [&>input]:max-w-[350px] [&_select]:text-[11px] max-[768px]:[padding:14px] max-[768px]:gap-[15px] max-[768px]:items-stretch"

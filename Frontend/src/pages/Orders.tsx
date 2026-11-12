@@ -25,6 +25,8 @@ import {
   ErrorBox,
   Modal,
   FieldsForm,
+  PANEL_CLASS,
+  PANEL_PADDED_CLASS,
 } from "../components/ui";
 export function OrderTable({
   rows,
@@ -133,11 +135,7 @@ export function Orders() {
           )
         }
       />
-      <section
-        className={
-          "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px]"
-        }
-      >
+      <section className={PANEL_CLASS}>
         <div
           className={
             "toolbar [padding:18px_21px] [border-bottom:1px_solid_var(--border)] flex items-center justify-between gap-[15px] flex-wrap [&>input]:max-w-[350px] [&_select]:text-[11px] max-[768px]:[padding:14px] max-[768px]:gap-[15px] max-[768px]:items-stretch"
@@ -312,9 +310,7 @@ export function OrderDetail() {
       >
         <div>
           <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-            }
+            className={PANEL_PADDED_CLASS}
           >
             <h2>Order items</h2>
             <div className={"item-list mt-[10px]"}>
@@ -388,9 +384,7 @@ export function OrderDetail() {
             )}
           </section>
           <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-            }
+            className={PANEL_PADDED_CLASS}
           >
             <h2>
               <Clock size={19} /> Order timeline
@@ -422,9 +416,7 @@ export function OrderDetail() {
         </div>
         <aside>
           <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-            }
+            className={PANEL_PADDED_CLASS}
           >
             <p
               className={
@@ -457,9 +449,7 @@ export function OrderDetail() {
             </p>
           </section>
           <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-            }
+            className={PANEL_PADDED_CLASS}
           >
             <h3>Delivery & returns</h3>
             <p>

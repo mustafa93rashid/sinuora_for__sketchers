@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
 import { roleLabel } from "../lib/utils";
-import { PageTitle, FieldsForm, Button, ErrorBox } from "../components/ui";
+import {
+  PageTitle,
+  FieldsForm,
+  Button,
+  ErrorBox,
+  PANEL_PADDED_CLASS,
+} from "../components/ui";
 export default function Profile() {
   const { user, reload } = useAuth();
   const [emailStep, setEmailStep] = useState(false),
@@ -21,9 +27,7 @@ export default function Profile() {
       >
         <div>
           <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-            }
+            className={PANEL_PADDED_CLASS}
           >
             <div
               className={
@@ -91,9 +95,7 @@ export default function Profile() {
         </div>
         <aside>
           <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-            }
+            className={PANEL_PADDED_CLASS}
           >
             <h2>Change email</h2>
             <p className={"muted text-muted-foreground font-normal"}>
@@ -138,9 +140,7 @@ export default function Profile() {
             />
           </section>
           <section
-            className={
-              "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px] padded [padding:25px] [&_h2]:flex [&_h2]:items-center [&_h2]:gap-[8px] [&_h2]:mb-[21px] [&_p]:text-[12px] [&_small]:block max-[768px]:[padding:20px]"
-            }
+            className={PANEL_PADDED_CLASS}
           >
             <h2>Change password</h2>
             <p className={"muted text-muted-foreground font-normal"}>

@@ -13,6 +13,7 @@ import {
   Pager,
   Modal,
   FieldsForm,
+  PANEL_CLASS,
   Badge,
 } from "../components/ui";
 import { DataTable } from "../components/DataTable";
@@ -46,11 +47,7 @@ export default function Users() {
           )
         }
       />
-      <section
-        className={
-          "panel bg-white [border:1px_solid_var(--border)] rounded-[11px] overflow-hidden min-w-0 mb-[22px] max-[768px]:mb-[18px]"
-        }
-      >
+      <section className={PANEL_CLASS}>
         <div
           className={
             "toolbar [padding:18px_21px] [border-bottom:1px_solid_var(--border)] flex items-center justify-between gap-[15px] flex-wrap [&>input]:max-w-[350px] [&_select]:text-[11px] max-[768px]:[padding:14px] max-[768px]:gap-[15px] max-[768px]:items-stretch"
