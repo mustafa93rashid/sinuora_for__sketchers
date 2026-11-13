@@ -28,7 +28,7 @@ Three layouts: mobile below 768px, tablet 768–1199px, desktop 1200px and above
 
 ## Verification and production
 
-Run `npm test`, `npm run build`, then `npm run preview` to inspect the build at the same localhost origin and API proxy.
+Run `npm test`, `npm run build`, then `npm run preview` to inspect the build at the same localhost origin and API proxy. `.github/workflows/ci.yml` runs `npm test` and `npm run build` automatically on every pull request and push to `main` (see `Backend/docs/deployment-readiness.md` for its verification status).
 
 Production hosting must serve `index.html` for client routes and reverse-proxy `/api` to Express; Vite's proxy is not shipped in static assets. Configure HTTPS, frontend origins and cookies in the backend for production.
 
