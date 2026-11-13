@@ -8,6 +8,10 @@ test("Resolves a mongod binary from the environment first, then a local Windows 
     "/custom/mongod"
   );
 
+  // resolve-mongod.js now builds this candidate with path.win32.join, which
+  // always separates with "\" regardless of the host OS actually running
+  // this test - so the real Windows path is the correct expectation on
+  // every platform, not just on Windows.
   assert.equal(
     resolveMongodBinary({
       env: { MONGOD_BINARY: "/missing/mongod" },

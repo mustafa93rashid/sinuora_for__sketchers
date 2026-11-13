@@ -1,5 +1,5 @@
 const { existsSync, readdirSync } = require("node:fs");
-const { join } = require("node:path");
+const path = require("node:path");
 
 const WINDOWS_SERVER_ROOT = "C:\\Program Files\\MongoDB\\Server";
 
@@ -34,8 +34,11 @@ const resolveMongodBinary = ({
   if (platform === "win32") {
     const versions = [...listVersions(WINDOWS_SERVER_ROOT)].sort().reverse();
 
+    // path.win32.join (not the plain, host-dependent path.join) so this
+    // always builds a backslash-separated Windows path, even when the
+    // `platform` option simulates win32 on a POSIX test runner/CI host.
     for (const version of versions) {
-      const candidate = join(WINDOWS_SERVER_ROOT, version, "bin", "mongod.exe");
+      const candidate = path.win32.join(WINDOWS_SERVER_ROOT, version, "bin", "mongod.exe");
 
       if (exists(candidate)) return candidate;
     }
