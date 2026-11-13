@@ -1,0 +1,81 @@
+name: CI
+
+# Addresses audit finding H-3 / the Backend README's own documented gap:
+# test:integration previously had to be run by hand before any merge that
+# touched order/inventory/auth logic. This runs both backend suites and the
+# frontend suite + build on every pull request and push to main. It only
+# ever reads/writes its own disposable, randomly-ported MongoDB replica set
+# and an in-memory Vite build - it does not deploy anything and touches no
+# production system, database, or secret.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (unit + integration)
+    # Pinned to 22.04 (not ubuntu-latest) because the MongoDB apt repository
+    # below is published per Ubuntu codename ("jammy") - bumping this
+    # requires confirming MongoDB publishes a matching repo for the newer
+    # codename first.
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: Backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: Backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Install MongoDB Community Server
+        # Only installs the mongod binary; nothing is started as a system
+        # service here. tests/orders.integration.test.js spins up its own
+        # throwaway single-node replica set on a random port and tears it
+        # down itself - this step just makes that binary available.
+        run: |
+          curl -fsSL https://pgp.mongodb.com/server-7.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
+          echo "deb [ arch=amd64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+          sudo apt-get update
+          sudo apt-get install -y mongodb-org-server
+
+      - name: Run integration tests
+        env:
+          MONGOD_BINARY: /usr/bin/mongod
+        run: npm run test:integration
+
+  frontend:
+    name: Frontend (unit + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: Frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
